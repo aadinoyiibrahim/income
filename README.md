@@ -1,6 +1,12 @@
 
 # About the project
 
+# Task
+
+Predict income and expenses for a holdout sample of ~10K users for the month of August based on a training sample of ~10K users from Februrary through July.
+
+Based on your judgement of the usefulness of the results, either aggregate the data into incoming & outgoing flows, or predict based on the transaction type/category.
+
 # what's included
 
 income/
@@ -9,13 +15,13 @@ income/
 │   ├── train_model.py
 │   ├── preprocessing.py
 │   ├── predict.py
+│   │── plotter.py
 │── example.ipynb
 │── requirements.txt
 │── setup.py
 │── README.md
 │── appendix.py
 │── LRmodel.py
-│── plotter.py
 │── models/
 │── result/
 │── data/
