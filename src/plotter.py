@@ -1,3 +1,12 @@
+"""
+Project: case study
+
+this file plots the results
+
+Author: Abdullahi A. Ibrahim
+date: 05-02-2025
+"""
+
 from sklearn.metrics import roc_curve
 import matplotlib.pyplot as plt
 import os

@@ -1,3 +1,12 @@
+"""
+Project: case study
+
+this file saves the results in a file
+
+Author: Abdullahi A. Ibrahim
+date: 05-02-2025
+"""
+
 import os
 import joblib
 

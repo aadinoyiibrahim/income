@@ -1,3 +1,12 @@
+"""
+Project: case study
+
+this file load and preprocess the dataset
+
+Author: Abdullahi A. Ibrahim
+date: 05-02-2025
+"""
+
 import pandas as pd
 import numpy as np
 from sklearn.preprocessing import StandardScaler, LabelEncoder

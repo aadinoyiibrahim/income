@@ -1,3 +1,12 @@
+"""
+Project: case study
+
+this file trains the models and saves them
+
+Author: Abdullahi A. Ibrahim
+date: 05-02-2025
+"""
+
 import joblib
 from sklearn.ensemble import RandomForestClassifier
 from sklearn.neural_network import MLPClassifier

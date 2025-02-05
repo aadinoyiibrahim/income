@@ -1,3 +1,12 @@
+"""
+Project: case study
+
+this file predict the new data using the trained model
+
+Author: Abdullahi A. Ibrahim
+date: 05-02-2025
+"""
+
 import joblib
 import pandas as pd
 import os
