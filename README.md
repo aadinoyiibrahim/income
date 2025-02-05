@@ -26,6 +26,26 @@ income/
 │── result/
 │── data/
 
+```bash
+income/
+│── src/
+│   ├── Dockerfile
+│   ├── train_model.py
+│   ├── preprocessing.py
+│   ├── predict.py
+│   │── plotter.py
+│── example.ipynb
+│── requirements.txt
+│── setup.py
+│── README.md
+│── appendix.py
+│── LRmodel.py
+│── models/
+│── result/
+│── data/
+
+```
+
 - ```Dockerfile```: to creates a containerized environment for running `predict.py` and managing model predictions independently of system configurations
 - ```train_model.py```: to train machine learning models used here and save them for later use in `predict.py`
 - ```preprocessing.py```: for cleaning, transforming, and preparing data to be used in `train_model.py` and `predict.py`
