@@ -9,23 +9,6 @@ Based on your judgement of the usefulness of the results, either aggregate the d
 
 # what's included
 
-income/
-│── src/
-│   ├── Dockerfile
-│   ├── train_model.py
-│   ├── preprocessing.py
-│   ├── predict.py
-│   │── plotter.py
-│── example.ipynb
-│── requirements.txt
-│── setup.py
-│── README.md
-│── appendix.py
-│── LRmodel.py
-│── models/
-│── result/
-│── data/
-
 ```bash
 income/
 │── src/
@@ -127,12 +110,12 @@ This will save predictions in `./result/predictions_all_models.csv`.
 
 ### Model accuracy
 <p align="center" width=10%>
-<img src ="./result/accuracy.png"><br>
+<img src ="./src/result/accuracy.png"><br>
 </p>
 
 ### AUC curve
 <p align="center" width=10%>
-<img src ="./result/auc.png"><br>
+<img src ="./src/result/auc.png"><br>
 </p>
 
 # Contact
