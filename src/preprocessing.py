@@ -85,7 +85,6 @@ def load_and_preprocess(data_path, training=True, scaler=None):
     features = ["mcc_group", "amount_n26_currency", "day", "month"]
     X = df_train.drop(columns=["direction"])
     y = df_train["direction"]
-    print(f"y:{type(y)}")
 
     # data split
     X_train, X_temp, y_train, y_temp = train_test_split(
@@ -113,8 +112,13 @@ def load_and_preprocess(data_path, training=True, scaler=None):
 
         return X_train, X_val, X_test, y_train, y_val, y_test, scaler, encoders
     else:
-        print(f"using --training == predict X--")
-        return X
+        print(f"Using --training == False-- (Prediction mode)")
+        scaler = StandardScaler()
+        df_train[features] = scaler.fit_transform(df_train[features])
+
+        if "direction" not in df_train.columns:
+            raise KeyError("The 'direction' column is missing from the processed data")
+        return df_train
 
 
 def fill_missing_with_mode(df, group_col, target_col):

@@ -1,11 +1,14 @@
-
 # About the project
+
+This is a case study for financial data
 
 # Task
 
 Predict income and expenses for a holdout sample of ~10K users for the month of August based on a training sample of ~10K users from Februrary through July.
 
 Based on your judgement of the usefulness of the results, either aggregate the data into incoming & outgoing flows, or predict based on the transaction type/category.
+
+We start by aggregating data into In (incoming) and Out (outgoing) flows. And this would be the response feature.
 
 # what's included
 
@@ -17,15 +20,18 @@ income/
 │   ├── preprocessing.py
 │   ├── predict.py
 │   │── plotter.py
-│── example.ipynb
+│   │── example.ipynb
+│   │── appendix.py
+│   │── LRmodel.py
+│   │── setup.py
+│   │── data/
+│   │── result/
+│   │── models/
+│   │── img/
 │── requirements.txt
-│── setup.py
 │── README.md
-│── appendix.py
-│── LRmodel.py
-│── models/
-│── result/
 │── data/
+│── slide/
 
 ```
 
@@ -42,6 +48,7 @@ income/
 - ```models/```: the trained models are saved here
 - ```result/```: the metrics from `plotter.py` are saved here
 - ```data/```: contains the data (to be) used
+- ```slide/```: contains a presentation
 
 
 
@@ -68,7 +75,7 @@ This will save predictions in `./result/predictions_all_models.csv`.
 
 ## running with docker
 
-assuming you have docker destop installed. Open the Docker Desktop application. Next, build the docker image by runing the following on your commandline
+Assuming you have docker destop installed. Open the Docker Desktop application. Next, build the docker image by runing the following on your commandline
 
 ```bash
 docker build --no-cache -t ml_predict_app .
@@ -84,7 +91,7 @@ docker run -it \
   ml_predict_app
 ```
 
-This will save predictions in `./result/predictions_all_models.csv`.
+This will save predictions in `./result/predictions_all_models.csv`. This approach would help you integrate the code into your app.
 
 # Code details
 
@@ -95,6 +102,8 @@ This will save predictions in `./result/predictions_all_models.csv`.
 - `baseline RF`: baseline RF assumes equal importance for all classes, 
 - `weighted RF`: and the weighted approach introduces class weights to modify the splitting criteria of the labels to prioritize minority class
 - `MLP`: basline mlp is a feedforward neural network consisting of fully connected neurons with nonlinear activation functions
+
+See slide and Jupyter for more details.
 
 ## parameters:
 
@@ -108,6 +117,8 @@ This will save predictions in `./result/predictions_all_models.csv`.
 
 # Metrics
 
+We consider three metrics; accuracy, f1 score and auc.
+
 ### Model accuracy
 <p align="center" width=10%>
 <img src ="./src/result/accuracy.png"><br>
@@ -117,6 +128,10 @@ This will save predictions in `./result/predictions_all_models.csv`.
 <p align="center" width=10%>
 <img src ="./src/result/auc.png"><br>
 </p>
+
+# About the result
+
+We splitted the data into February - June to train/val/test the model. And July is used to make independent prediction. To run August data, simply provide the link to the data inside `predict.py` to generate the result. Remember to track in index of the dataframe should there be a misalignment.
 
 # Contact
 You can reachout here [Abdullahi Adinoyi Ibrahim](https://github.com/aadinoyiibrahim)

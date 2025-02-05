@@ -26,7 +26,7 @@ data_dir = "./data/2016-09-19_79351_training_feb_june.csv"
 X_train, X_val, X_test, y_train, y_val, y_test, scaler, encoders = load_and_preprocess(
     data_dir, training=True
 )
-
+print(f"X_train shape: {X_train.shape}")
 # hyperparameters
 n_estimator = 100
 seedS = 42

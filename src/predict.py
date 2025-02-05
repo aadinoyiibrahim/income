@@ -1,12 +1,3 @@
-"""
-Project: case study
-
-this file predict the new data using the trained model
-
-Author: Abdullahi A. Ibrahim
-date: 05-02-2025
-"""
-
 import joblib
 import pandas as pd
 import os
@@ -30,11 +21,9 @@ print(f'path: {os.path.abspath("./models")}')
 
 def process_predit(new_data_dir, model_dir, output_csv_path):
     """
-    we will load the preprocessing artifacts,
-    load the new data, and make predictions using
-    all models in the model dir.
+    Load preprocessing artifacts, new data, and make predictions using
+    all models in the model directory.
     """
-
     new_data_dir = os.path.abspath(new_data_dir)
     model_dir = os.path.abspath(model_dir)
     output_csv_path = os.path.abspath(output_csv_path)
@@ -46,7 +35,7 @@ def process_predit(new_data_dir, model_dir, output_csv_path):
     print("Loading new data...")
     new_data = load_and_preprocess(new_data_dir, training=False)
 
-    print(f"new df shape: {new_data.shape}")
+    new_data["actual"] = new_data["direction"]
 
     model_files = [f for f in os.listdir(model_dir) if f.endswith("_model.pkl")]
 
@@ -60,20 +49,29 @@ def process_predit(new_data_dir, model_dir, output_csv_path):
 
         print(f"Making predictions with {model_name}...")
 
-        # Predict
-        class_predictions = model.predict(new_data)
+        class_predictions = model.predict(
+            new_data.drop(columns=["actual", "direction", "user_id"], errors="ignore")
+        )
         all_predictions[f"{model_name}_prediction"] = class_predictions
 
-        # add meaning
+        # Add meaning
         pred_meaning = {0: "In", 1: "Out"}
         all_predictions[f"{model_name}_meaning"] = [
             pred_meaning[pred] for pred in class_predictions
         ]
 
         if model.__class__.__name__ in ["RandomForestClassifier", "MLPClassifier"]:
-            y_pred_proba_test = model.predict_proba(new_data)[:, 1]
+            y_pred_proba_test = model.predict_proba(
+                new_data.drop(
+                    columns=["actual", "direction", "user_id"], errors="ignore"
+                )
+            )[:, 1]
         elif model.__class__.__name__ == "LogisticRegressionModels":
-            y_pred_proba_test = model.predict_proba(new_data)
+            y_pred_proba_test = model.predict_proba(
+                new_data.drop(
+                    columns=["actual", "direction", "user_id"], errors="ignore"
+                )
+            )
         else:
             y_pred_proba_test = None
 
@@ -81,9 +79,11 @@ def process_predit(new_data_dir, model_dir, output_csv_path):
             all_predictions[f"{model_name}_probability"] = y_pred_proba_test
 
     output_df = pd.DataFrame(all_predictions)
+    # output_df.insert(0, "user_id", new_data["user_id"])  # Add user_id
+    output_df.insert(0, "actual", new_data["actual"])  # Add actual direction
 
     if output_csv_path is not None:
-        output_df.to_csv(output_csv_path, index=False)
+        output_df.to_csv(output_csv_path, index=False)  # Save CSV without index
 
     print(f"Predictions saved to {output_csv_path}")
 
