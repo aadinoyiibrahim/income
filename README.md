@@ -66,7 +66,9 @@ next, you run:
 ```bash
 python3 predict.py
 ```
-and lastly, run to get your predictions
+
+and lastly, you can pass a new data file by runing
+
 ```bash
 python3 predict.py --input "../data/2016-09-19_79351_training_july.csv"
 ```
