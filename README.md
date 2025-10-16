@@ -98,7 +98,7 @@ We consider three metrics; MAE, MSE and R2.
 
 
 # Contact
-You can reachout here [aadinoyiibrahim](https://github.com/aadinoyiibrahim)
+You can reachout here [aadinoyiibrahim](https://github.com/aadinoyiibrahim) and RA
 
 ## Thanks and Support
 
