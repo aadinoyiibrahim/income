@@ -1,19 +1,12 @@
-FROM python:3.8-slim
+FROM python:3.9-slim
 
-#working dir
-WORKDIR /app 
+WORKDIR /app
 
-RUN apt-get update && apt-get install -y \
-    gcc \
-    libfreetype6-dev \
-    libpng-dev \
-    pkg-config \
-    && rm -rf /var/lib/apt/lists/*
+COPY requirements.txt .
+RUN pip install -r requirements.txt
 
-COPY . /app
+COPY src/ /app/src/
 
-RUN pip install --no-cache-dir -r requirement.txt
+VOLUME ["/app/data", "/app/models", "/app/result"]
 
-RUN mkdir -p /app/result
-
-CMD ["python", "predict.py"]
+CMD ["uvicorn", "src.api:app", "--host", "0.0.0.0", "--port", "8000"]

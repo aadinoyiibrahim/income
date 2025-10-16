@@ -1,8 +1,8 @@
-# About the project
+# Income and Expenses Prediction Pipeline
 
-This is a case study for financial data
+This project predicts monthly income and expenses for users based on financial transaction data from February to July 2016. 
 
-# Task
+## Task
 
 Predict income and expenses for a holdout sample of ~10K users for the month of August based on a training sample of ~10K users from Februrary through July.
 
@@ -10,72 +10,44 @@ Based on your judgement of the usefulness of the results, either aggregate the d
 
 We start by aggregating data into In (incoming) and Out (outgoing) flows. And this would be the response feature.
 
-# what's included
+## what's included
 
-```bash
-income/
-│── src/
-│   ├── Dockerfile
-│   ├── train_model.py
-│   ├── preprocessing.py
-│   ├── predict.py
-│   │── plotter.py
-│   │── example.ipynb
-│   │── appendix.py
-│   │── LRmodel.py
-│   │── setup.py
-│   │── data/
-│   │── result/
-│   │── models/
-│   │── img/
-│── requirements.txt
-│── README.md
-│── data/
-│── slide/
-
-```
-
-- ```Dockerfile```: to creates a containerized environment for running `predict.py` and managing model predictions independently of system configurations
-- ```train_model.py```: to train machine learning models used here and save them for later use in `predict.py`
-- ```preprocessing.py```: for cleaning, transforming, and preparing data to be used in `train_model.py` and `predict.py`
-- ```predict.py```:  loads trained models (.pkl files saved by `train_model.py`), applies preprocessing to new data (assuming this is august data), make predictions, and saves the results
-- ```example.ipynb```: shows how to use the code in the jupyter
-- ```requirements.txt/setup.py```: required packages to be installed before running the code. if you're using Dockerfile, only requirements.txt is relevant. if you dont want to use dockerfile, run setup.py
-- ```README.md```: is this file you're currently reading
-- ```appendix.py```: save metrics in a file.
-- ```LRmodel.py```: implement the baseline logisitic regression (LR) and Cost-sensitive LR
-- ```plotter.py```: to plot the accuracies and auc
-- ```models/```: the trained models are saved here
-- ```result/```: the metrics from `plotter.py` are saved here
-- ```data/```: contains the data (to be) used
-- ```slide/```: contains a presentation
-
-
+- `src/`:
+- `analysis.ipynb`: Main notebook for end-to-end analysis.
+- `eda.py`: Exploratory data analysis module.
+- `preprocessing.py`: Data cleaning and feature engineering.
+- `cluster.py`: User clustering with K-means.
+- `train_model.py`: Model training with XGBoost and Optuna.
+- `predict.py`: Prediction and aggregation.
+- `plotter.py`: Metrics and feature importance plots.
+- `api.py`: FastAPI for deployment.
+- `data/`: Datasets.
+- `models/`: Saved models and scaler.
+- `result/`: Predictions CSV.
+- `img/`: Plots from EDA and metrics.
+- `requirements.txt`: Dependencies.
+- `Dockerfile`: For containerization.
+- `README.md`: This file.
 
 # How to run the code
 
 ## running locally
 
-All the dependencies needed to run the methods can be installed using ```setup.py```, in a pre-built ```conda``` environment. In particular, this script needs to be executed as:
+git clone this repo and `cd income`.
+You can install the dependencies needed to run the pipeline using ```pip install -r requirements.txt```. In particular, this script needs to be executed as:
 
 ```bash
-python setup.py
+pip install -r requirements.txt
 ```
-next, you run:
+Execute `analysis.ipynb` for full pipeline. Open `src/analysis.ipynb` and run cells sequentially for EDA, clustering, training, prediction.
 
-```bash
-python3 predict.py
-```
-
-and lastly, you can pass a new data file by runing
-
-```bash
-python3 predict.py --input "../data/2016-09-19_79351_training_july.csv"
-```
 
 This will save predictions in `./result/predictions_all_models.csv`.
 
-## running with docker
+## API Usage: 
+Upload CSV to `/predict` for JSON forecasts.
+
+## running with docker/deployment
 
 Assuming you have docker destop installed. Open the Docker Desktop application. Next, build the docker image by runing the following on your commandline
 
@@ -93,47 +65,43 @@ docker run -it \
   ml_predict_app
 ```
 
+- Build Docker: `docker build -t income-predictor .`
+- Run: `docker run -p 8000:8000 -v $(pwd)/data:/app/data -v $(pwd)/models:/app/models -v $(pwd)/result:/app/result income-predictor`
+- API Endpoint: POST `/predict` with CSV upload for forecasts.
+
 This will save predictions in `./result/predictions_all_models.csv`. This approach would help you integrate the code into your app.
 
-# Code details
-
-## model
-
-- `basline LR` : implement the LR method as baseline 
-- `cost LR`: and in addition, we add penalties to the cost function to balance the target variable
-- `baseline RF`: baseline RF assumes equal importance for all classes, 
-- `weighted RF`: and the weighted approach introduces class weights to modify the splitting criteria of the labels to prioritize minority class
-- `MLP`: basline mlp is a feedforward neural network consisting of fully connected neurons with nonlinear activation functions
-
-See slide and Jupyter for more details.
-
-## parameters:
-
-- `class_weight`: in the weighted RF, changes to `class_weight` will modify the outcome of the model. after some experiments, the class weight is set as `class_weight={0:1.45, 1:1.0}`
-- `max_depth`: the maximum depth of the tree
-- `n_estimator`: higher (lower) `n_estimator` could increase (reduce) model accuracy
-- weights on LR: to tune the model sensitivity to imbalanced response feature, use `weight_positive=1.` and  `weight_negative=1.45`. these values are thesame as in `class_weight`
-- `hidden_layer_sizes`: The ith element represents the number of neurons in the ith hidden layer.
-- `activation`: activation function for the hidden layer. other options are {identity, logistic, tanh}.
-- `solver`: the solver for weight optimization. other options to try are `lbfgs` and `sgd`.
+## EDA
+<p align="center" width=10%>
+<img src ="./img/eda/eda_grid_detailed.png"><br>
+</p>
 
 # Metrics
 
-We consider three metrics; accuracy, f1 score and auc.
+We consider three metrics; MAE, MSE and R2.
 
-### Model accuracy
 <p align="center" width=10%>
-<img src ="./src/result/accuracy.png"><br>
+<img src ="./img/metrics_table.png"><br>
 </p>
 
-### AUC curve
 <p align="center" width=10%>
-<img src ="./src/result/auc.png"><br>
+<img src ="./img/cluster_metrics.png"><br>
 </p>
 
-# About the result
+<p align="center" width=10%>
+<img src ="./img/actual_vs_predicted.png"><br>
+</p>
 
-We splitted the data into February - June to train/val/test the model. And July is used to make independent prediction. To run August data, simply provide the link to the data inside `predict.py` to generate the result. Remember to track in index of the dataframe should there be a misalignment.
+<p align="center" width=10%>
+<img src ="./img/shap_summary.png"><br>
+</p>
+
 
 # Contact
-You can reachout here [Abdullahi Adinoyi Ibrahim](https://github.com/aadinoyiibrahim)
+You can reachout here [aadinoyiibrahim](https://github.com/aadinoyiibrahim)
+
+## Thanks and Support
+
+[![Thank You Clicks](https://hits.sh/github.com/aadinoyiibrahim/income.svg?label=Thanks%20❤️&color=orange)](https://github.com/aadinoyiibrahim/income)
+
+[![Star on GitHub](https://img.shields.io/github/stars/aadinoyiibrahim/income?style=social)](https://github.com/aadinoyiibrahim/income/stargazers)
