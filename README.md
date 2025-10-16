@@ -102,12 +102,6 @@ You can reachout here [aadinoyiibrahim](https://github.com/aadinoyiibrahim)
 
 ## Thanks and Support
 
-If this project helped you, [give it a thumbs up! 👍](https://github.com/aadinoyiibrahim/income/issues/3)
+[![Thank You Clicks](https://hits.sh/github.com/aadinoyiibrahim/income.svg?label=Thanks%20❤️&color=orange)](https://github.com/aadinoyiibrahim/income)
 
-[![Thanks Count](https://img.shields.io/github/issues-reactions/aadinoyiibrahim/income/3?label=Thanks&style=for-the-badge)](https://github.com/aadinoyiibrahim/income/issues/3)
-
-[![Thank You Clicks](https://hits.sh/github.com/aadinoyiibrahim/income.svg?label=Thanks%20❤️&color=orange)](https://github.com/yourusername/yourrepo)
-
-
-## If you like this project, please give it a star! 
 [![Star on GitHub](https://img.shields.io/github/stars/aadinoyiibrahim/income?style=social)](https://github.com/aadinoyiibrahim/income/stargazers)
