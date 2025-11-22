@@ -7,19 +7,16 @@ from src.cluster import cluster_users
 from src.predict import predict_and_aggregate
 from src.preprocessing import preprocess_data
 
-
 @pytest.mark.usefixtures("create_dummy_models")
 def test_cluster_users_prediction(dummy_transaction_df):
     """Tests user clustering using a pre-saved dummy model."""
     
-
-    agg_df, _ = preprocess_data(dummy_transaction_df, fit=True)
-    clustered_df, kmeans_model = cluster_users(agg_df, fit=False, model_path='models/kmeans.pkl')
+    features, agg_df, _ = preprocess_data(dummy_transaction_df, fit=True)
+    clustered_df, kmeans_model = cluster_users(dummy_transaction_df, fit=False, model_path='models/kmeans.pkl')
 
     assert 'cluster' in clustered_df.columns
     assert clustered_df['cluster'].dtype == np.int64
     assert kmeans_model is not None
-    
     assert clustered_df['cluster'].nunique() == 1
 
 
@@ -29,7 +26,8 @@ def test_predict_and_aggregate_end_to_end(dummy_transaction_df):
     Tests the main prediction function end-to-end, leveraging the dummy models.
     This simulates the final prediction step.
     """
-    predictions_df = predict_and_aggregate(test_path='data/transaction_types.csv') # test_path is mocked as a CSV file to trigger prediction logic
+    #predictions_df = predict_and_aggregate(test_path='data/transaction_types.csv') # test_path is mocked as a CSV file to trigger prediction logic
+    predictions_df = predict_and_aggregate()
     assert isinstance(predictions_df, pd.DataFrame)
     assert predictions_df.shape[0] > 0
     
@@ -46,4 +44,3 @@ def test_predict_and_aggregate_end_to_end(dummy_transaction_df):
         assert np.isclose(income_sum, row['predicted_income'], atol=0.1)
         assert np.isclose(expenses_sum, row['predicted_expenses'], atol=0.1)
 
-        

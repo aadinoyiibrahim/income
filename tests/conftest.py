@@ -1,3 +1,13 @@
+
+import sys
+import pathlib
+
+ROOT_DIR = pathlib.Path(__file__).resolve().parents[1]
+SRC_DIR = ROOT_DIR / "src"
+if str(SRC_DIR) not in sys.path:
+    sys.path.insert(0, str(SRC_DIR))
+
+
 import pytest
 import pandas as pd
 import numpy as np
@@ -44,13 +54,16 @@ def api_client():
 
 @pytest.fixture
 def dummy_transaction_df():
-    """Fixture to provide a minimal, valid DataFrame for preprocessing tests."""
     data = {
         'user_id': ['u1', 'u1', 'u2', 'u2', 'u1', 'u2'],
-        'date': pd.to_datetime(['2016-06-01', '2016-06-15', '2016-06-10', '2016-07-01', '2016-07-15', '2016-07-20']),
+        'transaction_date': pd.to_datetime([
+            '2016-06-01', '2016-06-15',
+            '2016-06-10', '2016-07-01',
+            '2016-07-15', '2016-07-20',
+        ]),
         'amount_n26_currency': [100.0, -20.0, 50.0, -10.0, 300.0, -50.0],
         'transaction_type': ['T1', 'T2', 'T3', 'T4', 'T1', 'T2'],
-        'mcc_group': ['4000', '1000', '4000', '2000', '4000', '1000']
+        'mcc_group': ['4000', '1000', '4000', '2000', '4000', '1000'],
     }
     df = pd.DataFrame(data)
     return df
@@ -61,7 +74,7 @@ def dummy_prediction_csv_content(dummy_transaction_df):
     # Create a small DataFrame that simulates the August test data
     pred_data = {
         'user_id': ['u3', 'u3', 'u4', 'u4'],
-        'date': pd.to_datetime(['2016-08-01', '2016-08-10', '2016-08-05', '2016-08-15']),
+        'transaction_date': pd.to_datetime(['2016-08-01', '2016-08-10', '2016-08-05', '2016-08-15']),
         'amount_n26_currency': [500.0, -30.0, 150.0, -70.0],
         'transaction_type': ['T1', 'T2', 'T1', 'T2'],
         'mcc_group': ['4000', '1000', '4000', '1000']
@@ -88,7 +101,7 @@ def create_dummy_models(dummy_transaction_df):
     joblib.dump(num_cols, 'models/feature_columns.pkl')
 
     kmeans = KMeans(n_clusters=1, random_state=42, n_init=1)
-    kmeans.fit(np.array([[0, 0, 0]]))
+    kmeans.fit(np.array([[0, 0, 0, 0]]))
     joblib.dump(kmeans, 'models/kmeans.pkl')
 
     for flow in ['income', 'expenses']:
@@ -99,8 +112,8 @@ def create_dummy_models(dummy_transaction_df):
     from src.preprocessing import preprocess_data
     from src.cluster import cluster_users
     
-    agg_df, features = preprocess_data(dummy_transaction_df, fit=True, save_path='models/holdout_df.pkl')
-    agg_df, kmeans = cluster_users(agg_df, fit=False) 
+    features, agg_df, _ = preprocess_data(dummy_transaction_df,fit=True,save_path='models/holdout_df.pkl')
+    agg_df, kmeans = cluster_users(dummy_transaction_df, fit=False, model_path='models/kmeans.pkl') 
     agg_df.to_pickle('models/holdout_df.pkl')
     
     print("Dummy models and data saved for prediction testing.")

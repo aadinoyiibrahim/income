@@ -4,14 +4,21 @@ from sklearn.preprocessing import StandardScaler
 import joblib
 import os
 from typing import Tuple, Dict, List, Optional, Any
+from pathlib import Path
+
+BASE_DIR = Path(__file__).resolve().parent.parent 
 
 def load_lookups() -> Tuple[Dict[str, str], Dict[float, str]]:
     """Load lookup tables for transaction types and MCC groups."""
+    type_path = BASE_DIR / "data" / "transaction_types.csv"
+    mcc_path  = BASE_DIR / "data" / "mcc_group_definition.csv"
     try:
-        type_df = pd.read_csv('../data/transaction_types.csv')
+        # type_df = pd.read_csv('../data/transaction_types.csv')
+        type_df = pd.read_csv(type_path)
         type_to_flow = dict(zip(type_df['type'], type_df['direction']))
         type_to_flow = {k: v for k, v in type_to_flow.items() if v in ['In', 'Out']}  
-        mcc_df = pd.read_csv('../data/mcc_group_definition.csv')
+        # mcc_df = pd.read_csv('../data/mcc_group_definition.csv')
+        mcc_df = pd.read_csv(mcc_path)
         mcc_to_cat = dict(zip(mcc_df['mcc_group'], mcc_df['explanation']))
         return type_to_flow, mcc_to_cat
     except FileNotFoundError:

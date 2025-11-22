@@ -52,5 +52,5 @@ async def predict(file: UploadFile = File(...)) -> List[Dict[str, Any]]:
 
 @app.get("/health")
 def health() -> Dict[str, str]:
-    return {"status": "healthy", "version": "1.0.0"}
+    return {"status": "healthy"} #, "version": "1.0.0"}
 
