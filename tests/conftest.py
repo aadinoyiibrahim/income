@@ -92,6 +92,8 @@ def create_dummy_models(dummy_transaction_df):
     from sklearn.cluster import KMeans
     import joblib
     import xgboost as xgb
+    from src.preprocessing import preprocess_data
+    # from src.cluster import cluster_users
 
     scaler = StandardScaler()
     scaler.fit(np.array([[0, 0, 0]]))
@@ -109,12 +111,20 @@ def create_dummy_models(dummy_transaction_df):
         model.fit(np.array([[10, 20, 30]]), np.array([50]))
         joblib.dump(model, f'models/{flow}_cluster_0.pkl')
     
-    from src.preprocessing import preprocess_data
-    from src.cluster import cluster_users
-    
     features, agg_df, _ = preprocess_data(dummy_transaction_df,fit=True,save_path='models/holdout_df.pkl')
-    agg_df, kmeans = cluster_users(dummy_transaction_df, fit=False, model_path='models/kmeans.pkl') 
-    agg_df.to_pickle('models/holdout_df.pkl')
+    # agg_df, kmeans = cluster_users(dummy_transaction_df, fit=False, model_path='models/kmeans.pkl') 
+    
+    # clustered_df, _ = cluster_users(dummy_transaction_df,fit=False,model_path='models/kmeans.pkl')
+    # clustered_df.to_pickle('models/holdout_df.pkl')
     
     print("Dummy models and data saved for prediction testing.")
     return True
+
+
+
+
+
+
+
+
+

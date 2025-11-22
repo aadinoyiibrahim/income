@@ -114,73 +114,111 @@ def predict_and_aggregate(df_agg: Optional[pd.DataFrame] = None, features: Optio
             print("Warning: feature_columns.pkl not found. Proceeding without feature alignment.")
         print(f"Shape of features after scaling: {features.shape}")
 
+    if 'cluster' not in df_agg.columns:
+        print("Warning: 'cluster' column not found in df_agg. Assigning default cluster 0 to all rows.")
+        df_agg['cluster'] = 0
+
     required_cols = ['user_id', 'month', 'income', 'expenses', 'cluster']
     if not all(col in df_agg.columns for col in required_cols):
         missing_cols = [col for col in required_cols if col not in df_agg.columns]
         raise ValueError(f"Input DataFrame missing required columns: {missing_cols}")
-    
-    last_month = df_agg.groupby('user_id').last().reset_index()
 
     df_agg = df_agg.sort_values(['user_id', 'month']).reset_index(drop=True)
-    last_idx = df_agg.groupby('user_id').tail(1).index  # last row per user
+    last_idx = df_agg.groupby('user_id').tail(1).index
     X_last = features[last_idx]
     last_month = df_agg.loc[last_idx].reset_index(drop=True)
-    
+
     print("Loading models...")
     models_income = {}
     models_expenses = {}
     available_clusters = []
-    for c in range(5):
+
+    for c in sorted(last_month['cluster'].unique()):
         income_model_path = os.path.join(models_dir, f'xgb_income_cluster_{c}.pkl')
         expenses_model_path = os.path.join(models_dir, f'xgb_expenses_cluster_{c}.pkl')
-        try:
+
+        loaded = False
+
+        if os.path.exists(income_model_path) and os.path.exists(expenses_model_path):
             models_income[c] = joblib.load(income_model_path)
             models_expenses[c] = joblib.load(expenses_model_path)
-            print(f"Loaded models for cluster {c}")
+            print(f"Loaded models for cluster {c} from {income_model_path} / {expenses_model_path}")
+            loaded = True
+        else:
+            alt_income = os.path.join(models_dir, f'income_cluster_{c}.pkl')
+            alt_expenses = os.path.join(models_dir, f'expenses_cluster_{c}.pkl')
+            if os.path.exists(alt_income) and os.path.exists(alt_expenses):
+                models_income[c] = joblib.load(alt_income)
+                models_expenses[c] = joblib.load(alt_expenses)
+                print(f"Loaded models for cluster {c} from {alt_income} / {alt_expenses}")
+                loaded = True
+
+        if not loaded:
+            print(
+                f"Warning: Models for cluster {c} not found at "
+                f"{income_model_path}/{expenses_model_path} or {alt_income}/{alt_expenses}. Skipping cluster."
+            )
+        else:
             available_clusters.append(c)
-        except FileNotFoundError:
-            print(f"Warning: Models for cluster {c} not found at {income_model_path} or {expenses_model_path}. Skipping cluster.")
-    
+
     if not available_clusters:
         print("Error: No models found for any clusters. Cannot proceed with predictions.")
         raise FileNotFoundError("No valid model files found in ../models/.")
-    
-    last_month['cluster'] = last_month['cluster'].fillna(available_clusters[0]).astype(int)
-    pred_income = np.zeros(len(last_month))
-    pred_expenses = np.zeros(len(last_month))
-    for cluster in last_month['cluster'].unique():
-        if cluster not in available_clusters:
-            print(f"Warning: No model for cluster {cluster}. Using model for cluster {available_clusters[0]}.")
-            cluster = available_clusters[0]
-        mask = last_month['cluster'] == cluster
-        if mask.sum() == 0:
-            print(f"Warning: No data for cluster {cluster}. Skipping.")
+
+    def _scale_breakdown(breakdown, total_pred):
+        """
+        Scale a historical breakdown dict so that its values sum to total_pred.
+        If breakdown is empty or sums to <= 0, put everything into 'Unknown'.
+        """
+        if not isinstance(breakdown, dict) or len(breakdown) == 0:
+            return {"Unknown": float(total_pred)}
+
+        hist_sum = sum(breakdown.values())
+        if hist_sum <= 0:
+            return {"Unknown": float(total_pred)}
+
+        scaled = {cat: float(total_pred * val / hist_sum) for cat, val in breakdown.items()}
+        return scaled
+
+    results = []
+
+    for i, row in last_month.iterrows():
+        cluster_id = int(row['cluster'])
+        if cluster_id not in models_income:
             continue
-        # Use X_last[mask] directly for prediction (aligned with last_month)
-        pred_income[mask] = models_income[cluster].predict(X_last[mask])
-        pred_expenses[mask] = models_expenses[cluster].predict(X_last[mask])
-    
-    last_month['predicted_income'] = pred_income
-    last_month['predicted_expenses'] = pred_expenses
-    
 
-    def allocate_breakdown(row, is_income):
-        hist = row['income_breakdown'] if is_income else row['expenses_breakdown']
-        total = row['predicted_income'] if is_income else row['predicted_expenses']
-        if sum(hist.values()) == 0:
-            return {}
-        prop = {k: v / sum(hist.values()) for k, v in hist.items()}
-        return {k: v * total for k, v in prop.items()}
-    
-    last_month['predicted_income_breakdown'] = last_month.apply(allocate_breakdown, axis=1, is_income=True)
-    last_month['predicted_expenses_breakdown'] = last_month.apply(allocate_breakdown, axis=1, is_income=False)
-    
+        x = X_last[i].reshape(1, -1)
 
-    agg = last_month[['user_id', 'predicted_income', 'predicted_expenses', 'predicted_income_breakdown', 'predicted_expenses_breakdown']]
-    # os.makedirs('../result', exist_ok=True)
-    os.makedirs('./result', exist_ok=True)
-    agg.to_csv(os.path.join('./result', 'august_predictions.csv'), index=False)
-    print("Predictions saved to: ./result/august_predictions.csv")
-    return agg
+        income_pred = float(models_income[cluster_id].predict(x)[0])
+        expenses_pred = float(models_expenses[cluster_id].predict(x)[0])
 
-    
+        income_pred = max(0.0, income_pred)
+        expenses_pred = max(0.0, expenses_pred)
+
+        income_bd_hist = row.get('income_breakdown', {}) if isinstance(row.get('income_breakdown', {}), dict) else {}
+        expenses_bd_hist = row.get('expenses_breakdown', {}) if isinstance(row.get('expenses_breakdown', {}), dict) else {}
+
+        predicted_income_breakdown = _scale_breakdown(income_bd_hist, income_pred)
+        predicted_expenses_breakdown = _scale_breakdown(expenses_bd_hist, expenses_pred)
+
+        results.append(
+            {
+                "user_id": row["user_id"],
+                "predicted_income": income_pred,
+                "predicted_expenses": expenses_pred,
+                "predicted_income_breakdown": predicted_income_breakdown,
+                "predicted_expenses_breakdown": predicted_expenses_breakdown,
+            }
+        )
+
+    if not results:
+        raise RuntimeError("No predictions could be generated for any users.")
+
+    predictions_df = pd.DataFrame(results)
+
+    output_path = os.path.join(".", "result", "august_predictions.csv")
+    os.makedirs(os.path.dirname(output_path), exist_ok=True)
+    predictions_df.to_csv(output_path, index=False)
+    print(f"Predictions saved to: {output_path}")
+
+    return predictions_df
