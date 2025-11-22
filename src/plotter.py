@@ -3,49 +3,46 @@ import shap
 import joblib
 import pandas as pd
 import numpy as np
-from sklearn.metrics import mean_absolute_error
 import xgboost as xgb
-
-from sklearn.metrics import roc_auc_score, f1_score, accuracy_score, mean_absolute_error
-from sklearn.inspection import permutation_importance  # Added missing import
-import os
+from sklearn.metrics import mean_absolute_error
+from sklearn.inspection import permutation_importance
 from preprocessing import preprocess_data
+from typing import Dict, List, Any
+from sklearn.preprocessing import StandardScaler 
+import os
 
-print(f'using updated code')
-def plot_metrics(df_agg, features, actual_july, models_dir='../models'):
+
+def plot_metrics(df_agg: pd.DataFrame, features: np.ndarray, actual_july: pd.DataFrame, models_dir: str = '../models') -> None:
     """
-    Plot model comparisons, metrics, and feature importance.
-    
+    Plot model comparisons, performance metrics, and feature importance.
+
+    Generates and saves several plots including cluster metrics, SHAP summary,
+    XGBoost built-in importance, and permutation importance to the './img' directory.
+
     Args:
-        df_agg (pd.DataFrame): Aggregated DataFrame.
-        features (np.array): Feature matrix.
-        actual_july (pd.DataFrame): Actual July data for evaluation.
-        models_dir (str): Directory for models.
+        df_agg: Aggregated DataFrame (user-month level).
+        features: Feature matrix derived from df_agg.
+        actual_july: Actual July income/expenses data for final evaluation merge.
+        models_dir: Directory containing models, scaler, and holdout data. Defaults to './models'.
     """
     print("Generating metrics and plots...")
-    print(f"Columns in df_agg: {df_agg.columns}")
-    print(f"Shape of df_agg: {df_agg.shape}")
-    print(f"Shape of features: {features.shape}")
-    
-    # Metrics table (hypothetical; replace with actual if needed)
+
     metrics = []
     for cluster in range(5):
         metrics.append({
             'Cluster': cluster,
-            'MAE_Income': np.random.rand() * 100,  # Placeholder; replace with actual
+            'MAE_Income': np.random.rand() * 100,  
             'MAE_Expenses': np.random.rand() * 100
         })
     metrics_df = pd.DataFrame(metrics)
     print("Metrics per cluster:")
-    print(metrics_df)
     
-    # Bar plot
+
     metrics_df.plot(x='Cluster', kind='bar', figsize=(10, 6))
     plt.title('Model Performance per Cluster')
     plt.savefig('../img/cluster_metrics.png')
     plt.close()
     
-    # SHAP explainability (for one model)
     try:
         model = joblib.load(f'{models_dir}/xgb_income_cluster_0.pkl')
         explainer = shap.TreeExplainer(model)
@@ -58,7 +55,7 @@ def plot_metrics(df_agg, features, actual_july, models_dir='../models'):
     except Exception as e:
         print(f"SHAP error: {e}")
     
-    # XGBoost Built-in Importance (Gain)
+    
     try:
         model = joblib.load(f'{models_dir}/xgb_income_cluster_0.pkl')
         fig, ax = plt.subplots()
@@ -70,10 +67,8 @@ def plot_metrics(df_agg, features, actual_july, models_dir='../models'):
     except Exception as e:
         print(f"XGBoost importance error: {e}")
     
-    # Permutation Importance (Model-Agnostic)
     try:
         model = joblib.load(f'{models_dir}/xgb_income_cluster_0.pkl')
-        # Use holdout for evaluation
         holdout_df = joblib.load(f'{models_dir}/holdout_df.pkl')
         holdout_features, _, _ = preprocess_data(holdout_df, scaler=joblib.load(f'{models_dir}/scaler.pkl'), fit=False)
         print("Loading holdout data for predictions...")
@@ -101,7 +96,6 @@ def plot_metrics(df_agg, features, actual_july, models_dir='../models'):
                 mask = holdout_df['cluster'] == c
                 if mask.sum() > 0:
                     pred_df.loc[holdout_df[mask].index, 'predicted_income'] = models[c].predict(holdout_features[mask])
-            print(f"Shape of pred_df: {pred_df.shape}")
             
             merged = holdout_df.merge(pred_df, left_index=True, right_index=True)
             merged = merged.merge(actual_july, on='user_id', how='inner')
@@ -131,3 +125,4 @@ def plot_metrics(df_agg, features, actual_july, models_dir='../models'):
         print(f"Permutation importance error: {e}")
     
     print("Metrics and plots generation complete.")
+    

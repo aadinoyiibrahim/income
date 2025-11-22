@@ -1,82 +1,96 @@
 # Income and Expenses Prediction Pipeline
 
-This project predicts monthly income and expenses for users based on financial transaction data from February to July 2016. 
+This project deploys a machine learning pipeline to forecast users' next-month income and expenses, including category-level breakdowns, based on historical financial transactions.
 
-## Task
+## goal
 
-Predict income and expenses for a holdout sample of ~10K users for the month of August based on a training sample of ~10K users from Februrary through July.
-
-Based on your judgement of the usefulness of the results, either aggregate the data into incoming & outgoing flows, or predict based on the transaction type/category.
-
-We start by aggregating data into In (incoming) and Out (outgoing) flows. And this would be the response feature.
+The task is to predict total incoming and outgoing flows (income and expenses) for a holdout sample of users for August 2016 (based on training data from February to July 2016).
 
 ## what's included
 
-- `src/`:
-- `analysis.ipynb`: Main notebook for end-to-end analysis.
-- `eda.py`: Exploratory data analysis module.
-- `preprocessing.py`: Data cleaning and feature engineering.
-- `cluster.py`: User clustering with K-means.
-- `train_model.py`: Model training with XGBoost and Optuna.
-- `predict.py`: Prediction and aggregation.
-- `plotter.py`: Metrics and feature importance plots.
-- `api.py`: FastAPI for deployment.
-- `data/`: Datasets.
-- `models/`: Saved models and scaler.
-- `result/`: Predictions CSV.
-- `img/`: Plots from EDA and metrics.
-- `requirements.txt`: Dependencies.
-- `Dockerfile`: For containerization.
+This repository is structured to support both local development/runs and Docker deployment:
+
+- `src/`: source code for the pipeline
+-  - `analysis.ipynb`: main notebook for all analysis and prediction.
+-  - `eda.py`: exploratory data analysis module.
+-  - `preprocessing.py`: data cleaning and feature engineering.
+-  - `cluster.py`: user clustering with K-means.
+-  - `train_model.py`: model training with XGBoost and Optuna.
+-  - `predict.py`: prediction and aggregation.
+-  - `plotter.py`: metrics and feature importance plots.
+-  - `api.py`: FastAPI for deployment.
+- `data/`: the raw transaction data and lookup files.
+- `models/`: saved models and scaler.
+- `result/`: output dir for saved predictions.
+- `img/`: dir for plots from EDA and metrics.
+- `requirements.txt`: dependencies.
+- `Dockerfile`: containerized environment for the FastAPI.
 - `README.md`: This file.
 
-# How to run the code
+## How to run the code
 
-## running locally
+We try using the Jupyter, terminal and app
 
-git clone this repo and `cd income`.
-You can install the dependencies needed to run the pipeline using ```pip install -r requirements.txt```. In particular, this script needs to be executed as:
+### via Jupyter
+
+clone this repo and install all required dependencies. In particular, this step can be executed as follow:
 
 ```bash
+git clone [repository-url]
+cd income-prediction-pipeline
 pip install -r requirements.txt
 ```
-Execute `analysis.ipynb` for full pipeline. Open `src/analysis.ipynb` and run cells sequentially for EDA, clustering, training, prediction.
 
+Run `analysis.ipynb` for full pipeline. Open `src/analysis.ipynb` and run cells sequentially for EDA, clustering, training, prediction.
+This will save predictions in `../result/predictions_all_models.csv`.
 
-This will save predictions in `./result/predictions_all_models.csv`.
+### via terminal
 
-## API Usage: 
-Upload CSV to `/predict` for JSON forecasts.
+Run each pyscript as shown in the `analysis.ipynb` sequentially.
 
-## running with docker/deployment
-
-Assuming you have docker destop installed. Open the Docker Desktop application. Next, build the docker image by runing the following on your commandline
-
-```bash
-docker build --no-cache -t ml_predict_app .
-```
-
-and run the container with the following:
+### via Docker
+Assuming you have docker destop installed. Open the Docker Desktop application. Next, build the docker image by runing the following on your terminal
 
 ```bash
-docker run -it \
-  -v $(pwd)/data:/app/data \
-  -v $(pwd)/models:/app/models \
-  -v $(pwd)/result:/app/result \
-  ml_predict_app
+docker build -t income-predictor .
+docker run -p 8000:8000 income-predictor
 ```
 
-- Build Docker: `docker build -t income-predictor .`
-- Run: `docker run -p 8000:8000 -v $(pwd)/data:/app/data -v $(pwd)/models:/app/models -v $(pwd)/result:/app/result income-predictor`
-- API Endpoint: POST `/predict` with CSV upload for forecasts.
+### via API usage
 
-This will save predictions in `./result/predictions_all_models.csv`. This approach would help you integrate the code into your app.
+After running `docker run -p 8000:8000 income-predictor` on the terminal, open http://localhost:8000/docs on your browser. click on /predict > Try it out > upload your data (e.g., upload 2016-09-19_79351_training_july.csv) > execute > execute.
+
+You'll see a json output per user, here is an example.
+
+```bash
+ {
+    "user_id": "03f01986085ec123a18aa01877927ac5",
+    "predicted_income": 107.13653564453125,
+    "predicted_expenses": 886.4243774414062,
+    "predicted_income_breakdown": {
+      "Unknown": 107.13653564453125
+    },
+    "predicted_expenses_breakdown": {
+      "ATM": 311.5277523435842,
+      "Business Expenses": 115.88230401186466,
+      "Drugstore": 25.584404781840245,
+      "Gastronomie": 37.62412467917684,
+      "Groceries": 67.7234244225183,
+      "Shopping/(Fashion)": 234.77453799806347,
+      "Transport": 10.534754910169513,
+      "Unknown": 82.77307429418904
+    }
+  },
+```
+ You can download all user as a json file.
+
 
 ## EDA
 <p align="center" width=10%>
 <img src ="./img/eda/eda_grid_detailed.png"><br>
 </p>
 
-# Metrics
+## Metrics
 
 We consider three metrics; MAE, MSE and R2.
 
@@ -97,11 +111,11 @@ We consider three metrics; MAE, MSE and R2.
 </p>
 
 
-# Contact
+## Contact
 You can reachout here [aadinoyiibrahim](https://github.com/aadinoyiibrahim) and RA
 
-## Thanks and Support
+## Appreciation
 
-[![Thank You Clicks](https://hits.sh/github.com/aadinoyiibrahim/income.svg?label=Thanks%20❤️&color=orange)](https://github.com/aadinoyiibrahim/income)
+[![give a star!](https://hits.sh/github.com/aadinoyiibrahim/income.svg?label=Thanks%20❤️&color=orange)](https://github.com/aadinoyiibrahim/income)
 
 [![Star on GitHub](https://img.shields.io/github/stars/aadinoyiibrahim/income?style=social)](https://github.com/aadinoyiibrahim/income/stargazers)

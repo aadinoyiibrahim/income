@@ -12,3 +12,4 @@ joblib
 seaborn
 wordcloud
 scipy
+python-multipart

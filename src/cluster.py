@@ -3,30 +3,35 @@ import numpy as np
 from sklearn.cluster import KMeans
 from sklearn.preprocessing import StandardScaler
 import joblib
-from preprocessing import load_lookups  # Import load_lookups for flow and category mapping
 import os
+from preprocessing import load_lookups 
+from typing import Tuple, Dict, Any, List
 
-def cluster_users(df, model_path='../models/kmeans.pkl', fit=False):
+def cluster_users(df: pd.DataFrame, model_path: str ='../models/kmeans.pkl', fit: bool =False) -> Tuple[pd.DataFrame, KMeans]:
     """
     Cluster users based on aggregated features (avg/total amount, tx count, income ratio).
 
     Args:
-        df (pd.DataFrame): Input DataFrame with transactions (must include user_id, amount_n26_currency, transaction_type, mcc_group).
-        model_path (str): Path to save/load KMeans model.
-        fit (bool): If True, fit a new KMeans model; else, load existing model.
+        df: Input DataFrame with transactions (must include 'user_id', 'amount_n26_currency',
+            'transaction_type', 'mcc_group').
+        model_path: Path to save/load the KMeans model. Defaults to './models/kmeans.pkl'.
+        fit: If True, fit a new KMeans model; otherwise, load the existing model. Defaults to False.
 
     Returns:
-        tuple: (DataFrame with cluster labels, KMeans model)
+        A tuple containing:
+        - pd.DataFrame: The original DataFrame merged with the 'cluster' column.
+        - KMeans: The fitted or loaded KMeans model.
+
+    Raises:
+        ValueError: If the input DataFrame is missing required columns.
     """
     print("Starting clustering...")
 
-    # Check required columns
     required_cols = ['user_id', 'amount_n26_currency', 'transaction_type', 'mcc_group']
     if not all(col in df.columns for col in required_cols):
         missing_cols = [col for col in required_cols if col not in df.columns]
         raise ValueError(f"Input DataFrame missing required columns: {missing_cols}")
 
-    # Map flow and category columns if not present
     df = df.copy()
     type_to_flow, mcc_to_cat = load_lookups()
 
@@ -43,7 +48,7 @@ def cluster_users(df, model_path='../models/kmeans.pkl', fit=False):
         df['category'] = df['mcc_group'].replace('NA', np.nan).astype(float, errors='ignore').map(mcc_to_cat)
         df['category'] = df['category'].fillna('Unknown')
 
-    # Aggregate per user
+
     print("Aggregating data per user...")
     agg_dict = {
         'amount_n26_currency': ['mean', 'sum', 'count'],
@@ -59,7 +64,7 @@ def cluster_users(df, model_path='../models/kmeans.pkl', fit=False):
         user_agg.columns = ['user_id', 'avg_amount', 'total_amount', 'tx_count']
         user_agg['income_ratio'] = 0  # Fallback for missing flow
 
-    # Clustering
+
     print("Performing clustering...")
     X = user_agg[['avg_amount', 'total_amount', 'tx_count', 'income_ratio']].values
     scaler = StandardScaler()
@@ -82,7 +87,7 @@ def cluster_users(df, model_path='../models/kmeans.pkl', fit=False):
             joblib.dump(kmeans, model_path)
             print(f"Saved new KMeans model to: {model_path}")
 
-    # Merge cluster labels back to original DataFrame
+ 
     df = df.merge(user_agg[['user_id', 'cluster']], on='user_id', how='left')
     print(f"Shape of clustered DataFrame: {df.shape}")
     print("Clustering completed.")
