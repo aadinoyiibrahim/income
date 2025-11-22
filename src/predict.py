@@ -9,7 +9,6 @@ from typing import Optional, Tuple, Dict, Any, List
 from sklearn.preprocessing import StandardScaler 
 warnings.filterwarnings('ignore', category=FutureWarning)
 
-
 def infer_subcategories(df: pd.DataFrame) -> pd.DataFrame:
 
     """

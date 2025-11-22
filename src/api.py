@@ -6,7 +6,7 @@ from io import StringIO
 from src.predict import predict_and_aggregate
 
 app = FastAPI(
-    title="Income Predictor API",
+    title="Income and Expenses Prediction Pipeline API",
     version="1.0.0",
     description="ML Pipeline for forecasting user income and expenses."
 )
