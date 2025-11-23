@@ -29,10 +29,7 @@ This repository is structured to support both local development/runs and Docker 
 
 ## How to run the code
 
-We try using the Jupyter, terminal and app
-
-### via Jupyter
-
+We try using the Jupyter, terminal and app.
 clone this repo and install all required dependencies. In particular, this step can be executed as follow:
 
 ```bash
@@ -40,6 +37,8 @@ git clone git@github.com:aadinoyiibrahim/income.git
 cd income-prediction-pipeline
 pip install -r requirements.txt
 ```
+
+### via Jupyter
 
 Run `analysis.ipynb` for full pipeline. Open `src/analysis.ipynb` and run cells sequentially for EDA, clustering, training, prediction.
 This will save predictions in `../result/predictions_all_models.csv`.
