@@ -11,6 +11,12 @@ on:
 jobs:
   build-and-test:
     runs-on: ubuntu-latest
+
+    env:
+      DOCKER_USERNAME: ${{ secrets.DOCKER_USERNAME }}
+      DOCKER_PASSWORD: ${{ secrets.DOCKER_PASSWORD }}
+
+
     steps:
       - name: Checkout Repository
         uses: actions/checkout@v4
@@ -21,15 +27,12 @@ jobs:
           python-version: '3.9' 
 
       - name: Install Dependencies (including pytest)
-        # We assume pytest is listed in requirements.txt (it should be) or install it explicitly here
         run: |
           pip install -r requirements.txt
           pip install pytest # Ensure pytest is available even if not in a dev-only requirements file
 
       - name: Run Unit and Integration Tests
-        # This command runs all tests we wrote in the 'tests/' directory
         run: |
-          # Create dummy directories needed by conftest.py's setup_test_environment
           mkdir -p data models result
           pytest tests/
 
@@ -60,6 +63,10 @@ jobs:
     needs: build-and-test
     runs-on: ubuntu-latest
     environment: production 
+
+    env:
+      DOCKER_USERNAME: ${{ secrets.DOCKER_USERNAME }}
+      
     steps:
       - name: Deploy to Cloud/Server (Placeholder)
         run: |
