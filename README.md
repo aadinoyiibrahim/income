@@ -84,6 +84,10 @@ You'll see a json output per user, here is an example.
 ```
  You can download all user as a json file.
 
+<p align="center" width=10%>
+<img src ="./img/eda/api.png"><br>
+</p>
+
 
 ## EDA
 <p align="center" width=10%>
