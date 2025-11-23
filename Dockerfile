@@ -21,8 +21,8 @@ RUN pip install --no-cache-dir -r requirements.txt
 
 # Application stage
 COPY src/ /app/src/
-RUN mkdir -p /app/models
-# COPY models/ /app/models/ 
+# RUN mkdir -p /app/models
+COPY models/ /app/models/ 
 
 # Create a non-root user for security
 RUN useradd -m appuser && chown -R appuser /app
