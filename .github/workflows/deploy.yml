@@ -60,11 +60,6 @@ jobs:
     runs-on: ubuntu-latest
     environment: production 
     steps:
-      - name: Deploy to Cl
-
-
-      oud/Server (Placeholder)
+      - name: Deploy to Cloud/Server (Placeholder)
         run: |
-          # The deployment step is now guaranteed to run only with tested and built code.
           echo "Deployment initiated. Pulling image ${{ secrets.DOCKER_USERNAME }}/income-predictor:latest"
-          # Replace this with your actual deployment commands (e.g., SSH, kubectl, AWS/GCP CLI)
