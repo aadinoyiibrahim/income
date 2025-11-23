@@ -133,37 +133,47 @@ def predict_and_aggregate(df_agg: Optional[pd.DataFrame] = None, features: Optio
     models_expenses = {}
     available_clusters = []
 
-    for c in sorted(last_month['cluster'].unique()):
-        income_model_path = os.path.join(models_dir, f'xgb_income_cluster_{c}.pkl')
-        expenses_model_path = os.path.join(models_dir, f'xgb_expenses_cluster_{c}.pkl')
+    for c in range(5):
+        income_candidates = [
+            os.path.join(models_dir, f"income_cluster_{c}.pkl"),
+            os.path.join(models_dir, f"xgb_income_cluster_{c}.pkl"),
+        ]
+        expenses_candidates = [
+            os.path.join(models_dir, f"expenses_cluster_{c}.pkl"),
+            os.path.join(models_dir, f"xgb_expenses_cluster_{c}.pkl"),
+        ]
 
-        loaded = False
+        income_model = None
+        expenses_model = None
+        income_path_used = None
+        expenses_path_used = None
 
-        if os.path.exists(income_model_path) and os.path.exists(expenses_model_path):
-            models_income[c] = joblib.load(income_model_path)
-            models_expenses[c] = joblib.load(expenses_model_path)
-            print(f"Loaded models for cluster {c} from {income_model_path} / {expenses_model_path}")
-            loaded = True
-        else:
-            alt_income = os.path.join(models_dir, f'income_cluster_{c}.pkl')
-            alt_expenses = os.path.join(models_dir, f'expenses_cluster_{c}.pkl')
-            if os.path.exists(alt_income) and os.path.exists(alt_expenses):
-                models_income[c] = joblib.load(alt_income)
-                models_expenses[c] = joblib.load(alt_expenses)
-                print(f"Loaded models for cluster {c} from {alt_income} / {alt_expenses}")
-                loaded = True
+        for p in income_candidates:
+            if os.path.exists(p):
+                income_model = joblib.load(p)
+                income_path_used = p
+                break
 
-        if not loaded:
-            print(
-                f"Warning: Models for cluster {c} not found at "
-                f"{income_model_path}/{expenses_model_path} or {alt_income}/{alt_expenses}. Skipping cluster."
-            )
-        else:
+        for p in expenses_candidates:
+            if os.path.exists(p):
+                expenses_model = joblib.load(p)
+                expenses_path_used = p
+                break
+
+        if income_model is not None and expenses_model is not None:
+            models_income[c] = income_model
+            models_expenses[c] = expenses_model
+            print(f"Loaded models for cluster {c} from {income_path_used} / {expenses_path_used}")
             available_clusters.append(c)
+        else:
+            print(
+                f"Warning: Models for cluster {c} not found at any expected path. Skipping cluster."
+            )
 
     if not available_clusters:
         print("Error: No models found for any clusters. Cannot proceed with predictions.")
         raise FileNotFoundError("No valid model files found in ../models/.")
+
 
     def _scale_breakdown(breakdown, total_pred):
         """
