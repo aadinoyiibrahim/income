@@ -20,10 +20,7 @@ def test_load_lookups_success():
 
 def test_preprocess_data_feature_creation(dummy_transaction_df):
     """Tests if aggregation, temporal features, and category columns are correctly created."""
-    # df_agg, features = preprocess_data(dummy_transaction_df, fit=True)
     features, df_agg, _ = preprocess_data(dummy_transaction_df, fit=True)
-
-
     expected_cols = ['user_id', 'month', 'income', 'expenses', 'income_breakdown', 'expenses_breakdown']
     assert all(col in df_agg.columns for col in expected_cols)
     
@@ -43,12 +40,10 @@ def test_preprocess_data_feature_creation(dummy_transaction_df):
 
 def test_preprocess_data_scaling(dummy_transaction_df):
     """Tests the scaling of numerical features."""
-    # df_agg_fit, features_fit = preprocess_data(dummy_transaction_df, fit=True, save_path='models/test_agg_df.pkl')
     features_fit, df_agg_fit, _ = preprocess_data(dummy_transaction_df, fit=True, save_path='models/test_agg_df.pkl')
 
     import joblib
     scaler = joblib.load('models/scaler.pkl')
-    # df_agg_transform, features_transform = preprocess_data(dummy_transaction_df, scaler=scaler, fit=False)
     features_transform, df_agg_transform, _ = preprocess_data(dummy_transaction_df, scaler=scaler, fit=False)
     
     assert features_transform.shape[0] == df_agg_transform.shape[0]
