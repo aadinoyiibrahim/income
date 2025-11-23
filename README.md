@@ -36,7 +36,7 @@ We try using the Jupyter, terminal and app
 clone this repo and install all required dependencies. In particular, this step can be executed as follow:
 
 ```bash
-git clone [repository-url]
+git clone git@github.com:aadinoyiibrahim/income.git
 cd income-prediction-pipeline
 pip install -r requirements.txt
 ```
