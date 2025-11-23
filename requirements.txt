@@ -16,3 +16,4 @@ python-multipart
 pytest
 flake8
 gensim
+httpx

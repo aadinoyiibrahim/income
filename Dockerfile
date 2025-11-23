@@ -21,8 +21,8 @@ RUN pip install --no-cache-dir -r requirements.txt
 
 # Application stage
 COPY src/ /app/src/
-# Copy models (Ideally, pull these from S3/GCS, but copying is okay for now)
-COPY models/ /app/models/ 
+RUN mkdir -p /app/models
+# COPY models/ /app/models/ 
 
 # Create a non-root user for security
 RUN useradd -m appuser && chown -R appuser /app

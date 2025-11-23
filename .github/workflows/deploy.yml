@@ -12,41 +12,41 @@ jobs:
   build-and-test:
     runs-on: ubuntu-latest
     steps:
-      - name: ⚙️ Checkout Repository
+      - name: Checkout Repository
         uses: actions/checkout@v4
 
-      - name: 🐍 Set up Python
+      - name: Set up Python
         uses: actions/setup-python@v5
         with:
           python-version: '3.9' # Match the version in your Dockerfile
 
-      - name: ⬇️ Install Dependencies (including pytest)
+      - name: Install Dependencies (including pytest)
         # We assume pytest is listed in requirements.txt (it should be) or install it explicitly here
         run: |
           pip install -r requirements.txt
           pip install pytest # Ensure pytest is available even if not in a dev-only requirements file
 
-      - name: 🧪 Run Unit and Integration Tests
+      - name: Run Unit and Integration Tests
         # This command runs all tests we wrote in the 'tests/' directory
         run: |
           # Create dummy directories needed by conftest.py's setup_test_environment
           mkdir -p data models result
           pytest tests/
 
-      - name: 🧹 Run Linting (Optional but Recommended)
+      - name: Run Linting (Optional but Recommended)
         run: |
           pip install flake8
           # Check source code and test files
           flake8 src/ tests/
 
-      - name: 🏗️ Log in to Docker Hub
+      - name: Log in to Docker Hub
         # Requires DOCKER_USERNAME and DOCKER_PASSWORD secrets
         uses: docker/login-action@v3
         with:
           username: ${{ secrets.DOCKER_USERNAME }}
           password: ${{ secrets.DOCKER_PASSWORD }}
 
-      - name: 🛠️ Build and Push Docker Image
+      - name: Build and Push Docker Image
         # This only runs if the tests passed successfully
         uses: docker/build-push-action@v5
         with:
@@ -63,7 +63,7 @@ jobs:
     runs-on: ubuntu-latest
     environment: production # Use a GitHub environment for secrets management
     steps:
-      - name: 🚀 Deploy to Cloud/Server (Placeholder)
+      - name: Deploy to Cloud/Server (Placeholder)
         run: |
           # The deployment step is now guaranteed to run only with tested and built code.
           echo "Deployment initiated. Pulling image ${{ secrets.DOCKER_USERNAME }}/income-predictor:latest"
