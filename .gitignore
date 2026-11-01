@@ -17,7 +17,9 @@ build/
 .DS_Store
 
 # Pipeline outputs (regenerate with `income train` / `income predict`)
-results/
+results/*
+!results/holdout_predictions.csv
+!results/metrics.json
 models/*
 !models/model_bundle.joblib
 *.tmp

@@ -67,8 +67,11 @@ their Feb–Jun history; (iv) refits on everyone and every month, so production 
     paths.results_dir.mkdir(exist_ok=True)
     holdout.to_csv(paths.results_dir / "holdout_predictions.csv", index=False)
 else:
+    holdout_csv = paths.results_dir / "holdout_predictions.csv"
+    if not holdout_csv.exists():
+        raise FileNotFoundError(f"{holdout_csv} missing: run `uv run income train` or set RETRAIN = True")
     bundle = load_bundle(paths.model_path)
-    holdout = pd.read_csv(paths.results_dir / "holdout_predictions.csv")
+    holdout = pd.read_csv(holdout_csv)
 
 feats = cluster_users(build_feature_frame(tx, lookups), bundle.clusterer)
 print("trained through", bundle.trained_through, "| features:", len(bundle.feature_columns))"""),
