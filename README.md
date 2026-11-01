@@ -52,9 +52,16 @@ docker compose up --build     # or: docker build -t income . && docker run -p 80
 
 ### Call the API
 
+The server must keep running while you call it. Either use a second terminal, or do it all in one terminal:
+
 ```bash
-curl -F "file=@data/examples/sample_users.csv" http://localhost:8000/predict
+uv run income serve &          # start the server in the background
+sleep 3                        # give it time to load the model
+curl -s -F "file=@data/examples/sample_users.csv" http://127.0.0.1:8000/predict | python3 -m json.tool | head -40
+kill %1                        # stop the server
 ```
+
+With Docker, the container is already running in the background, so the `curl` line alone is enough.
 
 ```json
 {
