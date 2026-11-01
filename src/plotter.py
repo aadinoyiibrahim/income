@@ -1,23 +1,22 @@
 """Evaluation and model-inspection figures (requires the ``analysis`` extra).
 
-Every function takes ``outdir_`` (a directory path ending with ``/``) and saves
-with ``plt.savefig(outdir_ + '<name>.png', dpi=300, bbox_inches='tight')``.
+Every function takes ``outdir_`` (a directory path ending with ``/``), saves
+with ``plt.savefig(outdir_ + '<name>.png', dpi=300, bbox_inches='tight')`` and
+returns the ``Figure``: a notebook renders it inline, scripts should ``plt.close`` it.
 """
 
 from __future__ import annotations
 
 import os
 
-import matplotlib
+import matplotlib.pyplot as plt
+import numpy as np
+import pandas as pd
+from matplotlib.figure import Figure
 
-matplotlib.use("Agg")  # headless: CLI, CI and Docker have no display
-import matplotlib.pyplot as plt  # noqa: E402
-import numpy as np  # noqa: E402
-import pandas as pd  # noqa: E402
-
-from .bundle import GLOBAL, ModelBundle  # noqa: E402
-from .config import TARGETS  # noqa: E402
-from .evaluate import metrics_table, per_cluster_table  # noqa: E402
+from .bundle import GLOBAL, ModelBundle
+from .config import TARGETS
+from .evaluate import metrics_table, per_cluster_table
 
 # Fixed categorical order (colour follows the method, never its rank).
 COLORS = {"model": "#2a78d6", "last_month": "#eb6834", "mean_3m": "#1baf7a"}
@@ -38,7 +37,7 @@ def _out(outdir_: str) -> str:
     return outdir_ if outdir_.endswith("/") else outdir_ + "/"
 
 
-def plot_evaluation(holdout: pd.DataFrame, outdir_: str) -> str:
+def plot_evaluation(holdout: pd.DataFrame, outdir_: str) -> Figure:
     """6-panel hold-out summary: actual vs predicted, MAE vs baselines, per-cluster MAE, residuals."""
     outdir_ = _out(outdir_)
     month = holdout.get("forecast_month", pd.Series(["hold-out month"])).iloc[0]
@@ -107,11 +106,10 @@ def plot_evaluation(holdout: pd.DataFrame, outdir_: str) -> str:
     fig.suptitle(f"Hold-out evaluation — forecasting {month} for unseen users", x=0.01, ha="left", fontsize=13)
     fig.tight_layout()
     plt.savefig(outdir_ + "evaluation_overview.png", dpi=300, bbox_inches="tight")
-    plt.close(fig)
-    return outdir_ + "evaluation_overview.png"
+    return fig
 
 
-def plot_feature_importance(bundle: ModelBundle, outdir_: str, top: int = 15) -> str:
+def plot_feature_importance(bundle: ModelBundle, outdir_: str, top: int = 15) -> Figure:
     """Gain importance of the global income and expenses models, side by side."""
     outdir_ = _out(outdir_)
     fig, axes = plt.subplots(1, 2, figsize=(14, 6))
@@ -128,11 +126,10 @@ def plot_feature_importance(bundle: ModelBundle, outdir_: str, top: int = 15) ->
         ax.grid(axis="y", visible=False)
     fig.tight_layout()
     plt.savefig(outdir_ + "feature_importance.png", dpi=300, bbox_inches="tight")
-    plt.close(fig)
-    return outdir_ + "feature_importance.png"
+    return fig
 
 
-def plot_shap_summary(bundle: ModelBundle, features: pd.DataFrame, outdir_: str, n: int = 1000) -> str:
+def plot_shap_summary(bundle: ModelBundle, features: pd.DataFrame, outdir_: str, n: int = 1000) -> Figure:
     """SHAP beeswarm for the global expenses model on a sample of user-months."""
     import shap
 
@@ -142,12 +139,12 @@ def plot_shap_summary(bundle: ModelBundle, features: pd.DataFrame, outdir_: str,
     values = shap.TreeExplainer(model).shap_values(X)
     shap.summary_plot(values, X, max_display=15, show=False)
     plt.title("SHAP: what drives next-month expenses (global model)", loc="left", fontsize=11)
+    fig = plt.gcf()
     plt.savefig(outdir_ + "shap_summary.png", dpi=300, bbox_inches="tight")
-    plt.close()
-    return outdir_ + "shap_summary.png"
+    return fig
 
 
-def plot_clusters(features: pd.DataFrame, outdir_: str) -> str:
+def plot_clusters(features: pd.DataFrame, outdir_: str) -> Figure:
     """Cluster profiles: size, and median monthly income / expenses per cluster."""
     from .cluster import user_profiles
 
@@ -168,5 +165,4 @@ def plot_clusters(features: pd.DataFrame, outdir_: str) -> str:
         _style(ax)
     fig.tight_layout()
     plt.savefig(outdir_ + "clusters.png", dpi=300, bbox_inches="tight")
-    plt.close(fig)
-    return outdir_ + "clusters.png"
+    return fig

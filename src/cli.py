@@ -62,7 +62,17 @@ def cmd_predict(args: argparse.Namespace) -> None:
     log.info("Forecast %s for %d users -> %s", preds["forecast_month"].iloc[0], len(preds), out)
 
 
+def _headless_matplotlib():
+    import matplotlib
+
+    matplotlib.use("Agg")  # no display in CLI / CI / Docker
+    import matplotlib.pyplot as plt
+
+    return plt
+
+
 def cmd_report(args: argparse.Namespace) -> None:
+    plt = _headless_matplotlib()
     import pandas as pd
 
     from . import plotter
@@ -77,25 +87,28 @@ def cmd_report(args: argparse.Namespace) -> None:
     feats = cluster_users(
         build_feature_frame(read_transactions(args.data or paths.training_csv), bundle.lookups), bundle.clusterer
     )
-    for f in (
-        plotter.plot_evaluation(holdout, outdir_),
-        plotter.plot_feature_importance(bundle, outdir_),
-        plotter.plot_clusters(feats, outdir_),
-        plotter.plot_shap_summary(bundle, feats, outdir_),
+    for name, make in (
+        ("evaluation_overview", lambda: plotter.plot_evaluation(holdout, outdir_)),
+        ("feature_importance", lambda: plotter.plot_feature_importance(bundle, outdir_)),
+        ("clusters", lambda: plotter.plot_clusters(feats, outdir_)),
+        ("shap_summary", lambda: plotter.plot_shap_summary(bundle, feats, outdir_)),
     ):
-        log.info("Saved %s", f)
+        plt.close(make())
+        log.info("Saved %s%s.png", outdir_, name)
 
 
 def cmd_eda(args: argparse.Namespace) -> None:
+    plt = _headless_matplotlib()
     from .eda import perform_eda
     from .preprocessing import load_lookups, read_transactions
 
     paths = get_paths()
-    summary = perform_eda(
+    summary, fig = perform_eda(
         read_transactions(args.data or paths.training_csv),
         load_lookups(paths.data_dir),
         str(paths.img_dir / "eda") + "/",
     )
+    plt.close(fig)
     print(json.dumps(summary, indent=2))
 
 

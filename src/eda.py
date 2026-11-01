@@ -8,17 +8,15 @@ from __future__ import annotations
 import logging
 import os
 
-import matplotlib
+import matplotlib.pyplot as plt
+import numpy as np
+import pandas as pd
+import seaborn as sns
+from matplotlib.figure import Figure
+from scipy.stats import chi2_contingency, ks_2samp
 
-matplotlib.use("Agg")
-import matplotlib.pyplot as plt  # noqa: E402
-import numpy as np  # noqa: E402
-import pandas as pd  # noqa: E402
-import seaborn as sns  # noqa: E402
-from scipy.stats import chi2_contingency, ks_2samp  # noqa: E402
-
-from .config import COL_AMOUNT, COL_DATE, COL_TYPE, COL_USER  # noqa: E402
-from .preprocessing import Lookups, annotate_transactions  # noqa: E402
+from .config import COL_AMOUNT, COL_DATE, COL_TYPE, COL_USER
+from .preprocessing import Lookups, annotate_transactions
 
 log = logging.getLogger(__name__)
 BLUE, ORANGE = "#2a78d6", "#eb6834"
@@ -49,8 +47,8 @@ def summarize(tx: pd.DataFrame) -> dict:
     }
 
 
-def perform_eda(tx_raw: pd.DataFrame, lookups: Lookups, outdir_: str) -> dict:
-    """Write ``eda_overview.png`` into ``outdir_`` and return the summary dict."""
+def perform_eda(tx_raw: pd.DataFrame, lookups: Lookups, outdir_: str) -> tuple[dict, Figure]:
+    """Write ``eda_overview.png`` into ``outdir_``; return (summary dict, figure)."""
     os.makedirs(outdir_, exist_ok=True)
     outdir_ = outdir_ if outdir_.endswith("/") else outdir_ + "/"
     tx = annotate_transactions(tx_raw, lookups)
@@ -111,5 +109,4 @@ def perform_eda(tx_raw: pd.DataFrame, lookups: Lookups, outdir_: str) -> dict:
     )
     fig.tight_layout()
     plt.savefig(outdir_ + "eda_overview.png", dpi=300, bbox_inches="tight")
-    plt.close(fig)
-    return summary
+    return summary, fig
