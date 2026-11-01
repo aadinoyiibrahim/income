@@ -1,125 +1,91 @@
+"""Shared fixtures. Everything is written to pytest's tmp dirs: tests never touch data/ or models/."""
 
-import sys
-import pathlib
+from __future__ import annotations
 
-ROOT_DIR = pathlib.Path(__file__).resolve().parents[1]
-SRC_DIR = ROOT_DIR / "src"
-if str(SRC_DIR) not in sys.path:
-    sys.path.insert(0, str(SRC_DIR))
-
-
-import pytest
-import pandas as pd
-import numpy as np
-import os
 import shutil
-from fastapi.testclient import TestClient
-from src.api import app
+from pathlib import Path
 
-TEST_DIRS = ['data', 'models', 'result']
-DUMMY_MCC_PATH = 'data/mcc_group_definition.csv'
-DUMMY_TYPE_PATH = 'data/transaction_types.csv'
+import numpy as np
+import pandas as pd
+import pytest
 
-@pytest.fixture(scope="session", autouse=True)
-def setup_test_environment():
-    """Sets up the required directories and dummy lookup files before testing."""
+REPO_DATA = Path(__file__).resolve().parents[1] / "data"
 
-    for d in TEST_DIRS:
-        os.makedirs(d, exist_ok=True)
-
-    mcc_data = {
-        'mcc_group': ['1000', '2000', '3000', '4000'],
-        'explanation': ['Groceries', 'Shopping/(Fashion)', 'ATM', 'Unknown']
-    }
-    mcc_df = pd.DataFrame(mcc_data)
-    mcc_df.to_csv(DUMMY_MCC_PATH, index=False)
-
-    type_data = {
-        'type': ['T1', 'T2', 'T3', 'T4', 'T5'],
-        'direction': ['In', 'Out', 'In', 'Out', '-']
-    }
-    type_df = pd.DataFrame(type_data)
-    type_df.to_csv(DUMMY_TYPE_PATH, index=False)
-
-    yield
-
-    for d in TEST_DIRS:
-        if os.path.exists(d):
-            shutil.rmtree(d)
 
 @pytest.fixture(scope="session")
-def api_client():
-    """Fixture to provide a TestClient for the FastAPI app."""
-    return TestClient(app)
+def workdir(tmp_path_factory) -> Path:
+    root = tmp_path_factory.mktemp("income")
+    (root / "data").mkdir()
+    for f in ("transaction_types.csv", "mcc_group_definition.csv"):  # small, read-only copies
+        shutil.copy(REPO_DATA / f, root / "data" / f)
+    return root
 
-@pytest.fixture
-def dummy_transaction_df():
-    data = {
-        'user_id': ['u1', 'u1', 'u2', 'u2', 'u1', 'u2'],
-        'transaction_date': pd.to_datetime([
-            '2016-06-01', '2016-06-15',
-            '2016-06-10', '2016-07-01',
-            '2016-07-15', '2016-07-20',
-        ]),
-        'amount_n26_currency': [100.0, -20.0, 50.0, -10.0, 300.0, -50.0],
-        'transaction_type': ['T1', 'T2', 'T3', 'T4', 'T1', 'T2'],
-        'mcc_group': ['4000', '1000', '4000', '2000', '4000', '1000'],
-    }
-    df = pd.DataFrame(data)
+
+@pytest.fixture(scope="session", autouse=True)
+def isolated_paths(workdir):
+    mp = pytest.MonkeyPatch()
+    for var, sub in [
+        ("INCOME_DATA_DIR", "data"),
+        ("INCOME_MODELS_DIR", "models"),
+        ("INCOME_RESULTS_DIR", "results"),
+        ("INCOME_IMG_DIR", "img"),
+    ]:
+        mp.setenv(var, str(workdir / sub))
+    mp.delenv("INCOME_MODEL_PATH", raising=False)
+    yield
+    mp.undo()
+
+
+def make_transactions(n_users: int = 60, months=("2016-02", "2016-03", "2016-04", "2016-05"), seed: int = 0):
+    """Synthetic but structured: each user has a salary level and a spending level."""
+    rng = np.random.default_rng(seed)
+    rows = []
+    for u in range(n_users):
+        salary = rng.choice([0, 800, 2500])
+        spend_rate = rng.integers(3, 25)
+        for m in months:
+            start = pd.Period(m, "M").start_time
+            if salary:
+                rows.append((f"u{u:03d}", start + pd.Timedelta(days=int(rng.integers(0, 5))), "CT", np.nan, salary))
+            for _ in range(rng.poisson(spend_rate)):
+                rows.append(
+                    (
+                        f"u{u:03d}",
+                        start + pd.Timedelta(days=int(rng.integers(0, 28))),
+                        rng.choice(["PT", "DD", "DT"]),
+                        rng.choice([1, 2, 3, 4, np.nan]),
+                        int(rng.integers(3, 200)),
+                    )
+                )
+    df = pd.DataFrame(
+        rows, columns=["user_id", "transaction_date", "transaction_type", "mcc_group", "amount_n26_currency"]
+    )
+    df["transaction_date"] = pd.to_datetime(df["transaction_date"])
     return df
 
-@pytest.fixture
-def dummy_prediction_csv_content(dummy_transaction_df):
-    """Fixture to provide CSV content bytes for API testing (August predictions)."""
-    # Create a small DataFrame that simulates the August test data
-    pred_data = {
-        'user_id': ['u3', 'u3', 'u4', 'u4'],
-        'transaction_date': pd.to_datetime(['2016-08-01', '2016-08-10', '2016-08-05', '2016-08-15']),
-        'amount_n26_currency': [500.0, -30.0, 150.0, -70.0],
-        'transaction_type': ['T1', 'T2', 'T1', 'T2'],
-        'mcc_group': ['4000', '1000', '4000', '1000']
-    }
-    pred_df = pd.DataFrame(pred_data)
-    
-    csv_buffer = pd.io.common.StringIO()
-    pred_df.to_csv(csv_buffer, index=False)
-    return csv_buffer.getvalue().encode('utf-8')
 
-@pytest.fixture
-def create_dummy_models(dummy_transaction_df):
-    """Creates dummy scaler, feature columns list, and XGBoost models."""
-    from sklearn.preprocessing import StandardScaler
-    from sklearn.cluster import KMeans
-    import joblib
-    import xgboost as xgb
-    from src.preprocessing import preprocess_data
-    
-    scaler = StandardScaler()
-    scaler.fit(np.array([[0, 0, 0]]))
-    joblib.dump(scaler, 'models/scaler.pkl')
-
-    num_cols = ['prev_income', 'avg_expenses_Groceries', 'tx_count']
-    joblib.dump(num_cols, 'models/feature_columns.pkl')
-
-    kmeans = KMeans(n_clusters=1, random_state=42, n_init=1)
-    kmeans.fit(np.array([[0, 0, 0, 0]]))
-    joblib.dump(kmeans, 'models/kmeans.pkl')
-
-    for flow in ['income', 'expenses']:
-        model = xgb.XGBRegressor(random_state=42)
-        model.fit(np.array([[10, 20, 30]]), np.array([50]))
-        joblib.dump(model, f'models/{flow}_cluster_0.pkl')
-    
-    features, agg_df, _ = preprocess_data(dummy_transaction_df,fit=True,save_path='models/holdout_df.pkl')
-    
-    print("Dummy models and data saved for prediction testing.")
-    return True
+@pytest.fixture(scope="session")
+def transactions() -> pd.DataFrame:
+    return make_transactions()
 
 
+@pytest.fixture(scope="session")
+def lookups(workdir):
+    from src.preprocessing import load_lookups
+
+    return load_lookups(workdir / "data")
 
 
+@pytest.fixture(scope="session")
+def trained(transactions, lookups):
+    from src.train_model import TrainConfig, run_training
+
+    cfg = TrainConfig(n_clusters=3, n_trials=0, min_cluster_rows=20, holdout_frac=0.25, n_jobs=1)
+    return run_training(transactions, lookups, cfg)
 
 
+@pytest.fixture(scope="session")
+def bundle_path(trained, workdir) -> Path:
+    from src.bundle import save_bundle
 
-
-
+    return save_bundle(trained[0], workdir / "models" / "model_bundle.joblib")

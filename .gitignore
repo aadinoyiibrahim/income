@@ -1,0 +1,23 @@
+# Python / tooling
+__pycache__/
+*.py[cod]
+.venv/
+.pytest_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+dist/
+build/
+*.egg-info/
+.ipynb_checkpoints/
+
+# Editors / OS
+.idea/
+.vscode/
+.DS_Store
+
+# Pipeline outputs (regenerate with `income train` / `income predict`)
+results/
+models/*
+!models/model_bundle.joblib
+*.tmp

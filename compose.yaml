@@ -1,0 +1,14 @@
+# docker compose up --build   ->  http://localhost:8000/docs
+services:
+  api:
+    build: .
+    image: income-forecast:local
+    ports:
+      - "8000:8000"
+    environment:
+      WEB_CONCURRENCY: "2"
+      INCOME_MAX_UPLOAD_MB: "100"
+    # To serve a freshly trained model without rebuilding, uncomment:
+    # volumes:
+    #   - ./models/model_bundle.joblib:/app/models/model_bundle.joblib:ro
+    restart: unless-stopped

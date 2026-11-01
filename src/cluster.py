@@ -1,94 +1,61 @@
-import pandas as pd
+"""User segmentation with K-means on per-user monthly spending profiles.
+
+Profiles are *per-month rates* (mean monthly income, expenses, transaction
+count, share of incoming transactions), so a user with 2 months of history and
+one with 6 months are comparable. Money/count features are log1p-transformed
+(heavy right tails) and standardised. The scaler is fitted once and stored with
+K-means in a single sklearn ``Pipeline``; the original code re-fitted the
+scaler on every inference batch, so cluster ids depended on who else was in
+the upload.
+"""
+
+from __future__ import annotations
+
 import numpy as np
+import pandas as pd
 from sklearn.cluster import KMeans
-from sklearn.preprocessing import StandardScaler
-import joblib
-import os
-from preprocessing import load_lookups 
-from typing import Tuple, Dict, Any, List
+from sklearn.pipeline import Pipeline, make_pipeline
+from sklearn.preprocessing import FunctionTransformer, StandardScaler
 
-def cluster_users(df: pd.DataFrame, model_path: str ='../models/kmeans.pkl', fit: bool =False) -> Tuple[pd.DataFrame, KMeans]:
-    """
-    Cluster users based on aggregated features (avg/total amount, tx count, income ratio).
+from .config import COL_USER
 
-    Args:
-        df: Input DataFrame with transactions (must include 'user_id', 'amount_n26_currency',
-            'transaction_type', 'mcc_group').
-        model_path: Path to save/load the KMeans model. Defaults to './models/kmeans.pkl'.
-        fit: If True, fit a new KMeans model; otherwise, load the existing model. Defaults to False.
-
-    Returns:
-        A tuple containing:
-        - pd.DataFrame: The original DataFrame merged with the 'cluster' column.
-        - KMeans: The fitted or loaded KMeans model.
-
-    Raises:
-        ValueError: If the input DataFrame is missing required columns.
-    """
-    print("Starting clustering...")
-
-    required_cols = ['user_id', 'amount_n26_currency', 'transaction_type', 'mcc_group']
-    if not all(col in df.columns for col in required_cols):
-        missing_cols = [col for col in required_cols if col not in df.columns]
-        raise ValueError(f"Input DataFrame missing required columns: {missing_cols}")
-
-    df = df.copy()
-    type_to_flow, mcc_to_cat = load_lookups()
-
-    if 'flow' not in df.columns:
-        print("Mapping flow column...")
-        df['flow'] = df['transaction_type'].map(type_to_flow)
-        if df['flow'].isna().any():
-            print(
-                f"Warning: {df['flow'].isna().sum()} transactions have unmapped transaction_type values: {df[df['flow'].isna()]['transaction_type'].unique()}")
-            df = df.dropna(subset=['flow'])
-
-    if 'category' not in df.columns:
-        print("Mapping category column...")
-        df['category'] = df['mcc_group'].replace('NA', np.nan).astype(float, errors='ignore').map(mcc_to_cat)
-        df['category'] = df['category'].fillna('Unknown')
+PROFILE_COLUMNS = ["mean_income", "mean_expenses", "mean_tx_count", "income_ratio"]
 
 
-    print("Aggregating data per user...")
-    agg_dict = {
-        'amount_n26_currency': ['mean', 'sum', 'count'],
-        'flow': lambda x: (x == 'In').mean()  # Proportion of 'In' transactions
-    }
-    try:
-        user_agg = df.groupby('user_id').agg(agg_dict).reset_index()
-        user_agg.columns = ['user_id', 'avg_amount', 'total_amount', 'tx_count', 'income_ratio']
-    except Exception as e:
-        print(f"Error in aggregation: {e}. Using fallback without flow.")
-        agg_dict.pop('flow', None)
-        user_agg = df.groupby('user_id').agg(agg_dict).reset_index()
-        user_agg.columns = ['user_id', 'avg_amount', 'total_amount', 'tx_count']
-        user_agg['income_ratio'] = 0  # Fallback for missing flow
+def user_profiles(panel: pd.DataFrame) -> pd.DataFrame:
+    """One row per user from a user-month panel (see ``preprocessing.monthly_panel``)."""
+    prof = panel.groupby(COL_USER).agg(
+        mean_income=("income", "mean"),
+        mean_expenses=("expenses", "mean"),
+        mean_tx_count=("tx_count", "mean"),
+        income_ratio=("income_ratio", "mean"),
+    )
+    return prof[PROFILE_COLUMNS]
 
 
-    print("Performing clustering...")
-    X = user_agg[['avg_amount', 'total_amount', 'tx_count', 'income_ratio']].values
-    scaler = StandardScaler()
-    X_scaled = scaler.fit_transform(X)
+def _log1p_money(X: np.ndarray) -> np.ndarray:
+    X = np.asarray(X, dtype=float).copy()
+    X[:, :3] = np.log1p(np.clip(X[:, :3], 0, None))
+    return X
 
-    if fit:
-        kmeans = KMeans(n_clusters=5, random_state=42)
-        user_agg['cluster'] = kmeans.fit_predict(X_scaled)
-        os.makedirs(os.path.dirname(model_path), exist_ok=True)
-        joblib.dump(kmeans, model_path)
-        print(f"Saved KMeans model to: {model_path}")
-    else:
-        try:
-            kmeans = joblib.load(model_path)
-            user_agg['cluster'] = kmeans.predict(X_scaled)
-        except FileNotFoundError:
-            print(f"Error: KMeans model not found at {model_path}. Fitting new model.")
-            kmeans = KMeans(n_clusters=5, random_state=42)
-            user_agg['cluster'] = kmeans.fit_predict(X_scaled)
-            joblib.dump(kmeans, model_path)
-            print(f"Saved new KMeans model to: {model_path}")
 
- 
-    df = df.merge(user_agg[['user_id', 'cluster']], on='user_id', how='left')
-    print(f"Shape of clustered DataFrame: {df.shape}")
-    print("Clustering completed.")
-    return df, kmeans
+def fit_clusterer(profiles: pd.DataFrame, n_clusters: int = 5, seed: int = 42) -> Pipeline:
+    n_clusters = max(1, min(n_clusters, len(profiles)))
+    pipe = make_pipeline(
+        FunctionTransformer(_log1p_money),
+        StandardScaler(),
+        KMeans(n_clusters=n_clusters, n_init=10, random_state=seed),
+    )
+    pipe.fit(profiles[PROFILE_COLUMNS].to_numpy())
+    return pipe
+
+
+def assign_clusters(clusterer: Pipeline, profiles: pd.DataFrame) -> pd.Series:
+    labels = clusterer.predict(profiles[PROFILE_COLUMNS].to_numpy())
+    return pd.Series(labels.astype(int), index=profiles.index, name="cluster")
+
+
+def cluster_users(panel: pd.DataFrame, clusterer: Pipeline) -> pd.DataFrame:
+    """Attach a ``cluster`` column to every row of a user-month frame."""
+    labels = assign_clusters(clusterer, user_profiles(panel))
+    return panel.drop(columns="cluster", errors="ignore").merge(labels, left_on=COL_USER, right_index=True, how="left")

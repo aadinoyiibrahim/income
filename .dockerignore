@@ -1,0 +1,20 @@
+# Only pyproject/uv.lock, src/ and the model bundle are needed in the image.
+.git
+.github
+.venv
+.idea
+.vscode
+**/__pycache__
+**/.pytest_cache
+**/.ruff_cache
+**/.ipynb_checkpoints
+**/.DS_Store
+data/
+img/
+notebooks/
+results/
+tests/
+src/old/
+src/result/
+models/*
+!models/model_bundle.joblib

@@ -1,50 +1,81 @@
-import pytest
+import numpy as np
 import pandas as pd
-from sklearn.preprocessing import StandardScaler
-import os
-from src.preprocessing import load_lookups, preprocess_data
+import pytest
 
-def test_load_lookups_success():
-    """Tests if lookup files are loaded and correctly mapped."""
-    type_to_flow, mcc_to_cat = load_lookups()
-    
-    assert 'T1' in type_to_flow
-    assert type_to_flow['T1'] == 'In'
-    assert 'T4' in type_to_flow
-    assert type_to_flow['T4'] == 'Out'
-    assert 'T5' not in type_to_flow, "Should filter out '-' direction"
-    assert 1000 in mcc_to_cat
-    assert mcc_to_cat[1000] == 'Groceries'
-    assert 4000 in mcc_to_cat
-    assert mcc_to_cat[4000] == 'Unknown'
+from src.preprocessing import (
+    add_features,
+    add_targets,
+    annotate_transactions,
+    build_feature_frame,
+    monthly_panel,
+    parse_dates,
+    validate_transactions,
+)
 
-def test_preprocess_data_feature_creation(dummy_transaction_df):
-    """Tests if aggregation, temporal features, and category columns are correctly created."""
-    features, df_agg, _ = preprocess_data(dummy_transaction_df, fit=True)
-    expected_cols = ['user_id', 'month', 'income', 'expenses', 'income_breakdown', 'expenses_breakdown']
-    assert all(col in df_agg.columns for col in expected_cols)
-    
-    feature_cols = [col for col in df_agg.columns if col.startswith('prev_') or col.startswith('avg_')]
-    assert len(feature_cols) > 0, "Feature engineering should create lagged columns."
 
-    u1_july = df_agg[(df_agg['user_id'] == 'u1') & (df_agg['month'] == 7)]
-    assert u1_july.shape[0] == 1
-    assert u1_july['income'].iloc[0] == 300.0
-    assert u1_july['expenses'].iloc[0] == 0.0
-    assert 'Unknown' in u1_july['income_breakdown'].iloc[0]
-    
-    u1_july_agg = df_agg.set_index(['user_id', 'month']).loc[('u1', 7)]
-    assert pytest.approx(u1_july_agg['prev_income'], 0.01) == 100.0
-    assert pytest.approx(u1_july_agg['prev_expenses'], 0.01) == -20.0
-    
+def test_parse_dates_handles_both_shipped_formats():
+    s = pd.Series(["2016-02-01", "01.02.16", "31.05.16"])
+    assert list(parse_dates(s).dt.strftime("%Y-%m-%d")) == ["2016-02-01", "2016-02-01", "2016-05-31"]
 
-def test_preprocess_data_scaling(dummy_transaction_df):
-    """Tests the scaling of numerical features."""
-    features_fit, df_agg_fit, _ = preprocess_data(dummy_transaction_df, fit=True, save_path='models/test_agg_df.pkl')
 
-    import joblib
-    scaler = joblib.load('models/scaler.pkl')
-    features_transform, df_agg_transform, _ = preprocess_data(dummy_transaction_df, scaler=scaler, fit=False)
-    
-    assert features_transform.shape[0] == df_agg_transform.shape[0]
-    assert features_transform.ndim == 2
+def test_parse_dates_rejects_garbage():
+    with pytest.raises(ValueError):
+        parse_dates(pd.Series(["not a date"]))
+
+
+def test_validate_missing_columns():
+    with pytest.raises(ValueError, match="Missing required columns"):
+        validate_transactions(pd.DataFrame({"user_id": ["a"]}))
+
+
+def test_lookups_filter_non_monetary_types(lookups):
+    assert lookups.type_to_flow["CT"] == "In" and lookups.type_to_flow["PT"] == "Out"
+    assert "AR" not in lookups.type_to_flow  # direction "-": authorisation reject
+    assert lookups.mcc_to_category[1] == "ATM" and "Unknown" in lookups.categories
+
+
+def _tiny():
+    return pd.DataFrame(
+        {
+            "user_id": ["a", "a", "a", "b", "a"],
+            "transaction_date": pd.to_datetime(["2016-02-03", "2016-02-10", "2016-04-01", "2016-04-05", "2016-02-11"]),
+            "transaction_type": ["CT", "PT", "PT", "DD", "AR"],
+            "mcc_group": [np.nan, 2, 1, np.nan, 2],
+            "amount_n26_currency": [1000, 50, 20, 30, 999],
+        }
+    )
+
+
+def test_panel_fills_inactive_months_with_zero(lookups):
+    tx = annotate_transactions(_tiny(), lookups)
+    assert "AR" not in set(tx["transaction_type"])  # dropped
+    panel = monthly_panel(tx, lookups.categories)
+    a = panel[panel.user_id == "a"].set_index("period")
+    assert list(a.index.astype(str)) == ["2016-02", "2016-03", "2016-04"]
+    assert a.loc[pd.Period("2016-03", "M"), ["income", "expenses", "tx_count"]].tolist() == [0, 0, 0]
+    assert a.loc[pd.Period("2016-02", "M"), "income"] == 1000
+    assert a.loc[pd.Period("2016-02", "M"), "exp_Groceries"] == 50
+    # b starts in April: no fabricated history before its first month
+    assert (panel.user_id == "b").sum() == 1
+
+
+def test_lags_and_targets(lookups):
+    panel = monthly_panel(annotate_transactions(_tiny(), lookups), lookups.categories)
+    f = add_targets(add_features(panel, lookups.categories))
+    a = f[f.user_id == "a"].reset_index(drop=True)
+    assert a.loc[1, "income_lag1"] == 1000 and a.loc[2, "income_lag2"] == 1000
+    assert a.loc[0, "target_expenses"] == 0 and a.loc[1, "target_expenses"] == 20
+    assert np.isnan(a.loc[2, "target_income"])
+    assert a.loc[2, "expenses_roll3_mean"] == pytest.approx((50 + 0 + 20) / 3)
+
+
+def test_features_do_not_look_ahead(transactions, lookups):
+    """Features at month t must be identical whether or not later months are present."""
+    early = transactions[transactions.transaction_date < "2016-04-01"]
+    f_early = build_feature_frame(early, lookups)
+    f_full = build_feature_frame(transactions, lookups)
+    cols = [c for c in f_early.columns if c not in ("user_id", "period")]
+    key = ["user_id", "period"]
+    merged = f_early.merge(f_full, on=key, suffixes=("_e", "_f"))
+    for c in cols:
+        np.testing.assert_allclose(merged[f"{c}_e"], merged[f"{c}_f"], err_msg=c)

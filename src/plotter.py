@@ -1,128 +1,172 @@
-import matplotlib.pyplot as plt
-import shap
-import joblib
-import pandas as pd
-import numpy as np
-import xgboost as xgb
-from sklearn.metrics import mean_absolute_error
-from sklearn.inspection import permutation_importance
-from preprocessing import preprocess_data
-from typing import Dict, List, Any
-from sklearn.preprocessing import StandardScaler 
+"""Evaluation and model-inspection figures (requires the ``analysis`` extra).
+
+Every function takes ``outdir_`` (a directory path ending with ``/``) and saves
+with ``plt.savefig(outdir_ + '<name>.png', dpi=300, bbox_inches='tight')``.
+"""
+
+from __future__ import annotations
+
 import os
 
+import matplotlib
 
-def plot_metrics(df_agg: pd.DataFrame, features: np.ndarray, actual_july: pd.DataFrame, models_dir: str = '../models') -> None:
-    """
-    Plot model comparisons, performance metrics, and feature importance.
+matplotlib.use("Agg")  # headless: CLI, CI and Docker have no display
+import matplotlib.pyplot as plt  # noqa: E402
+import numpy as np  # noqa: E402
+import pandas as pd  # noqa: E402
 
-    Generates and saves several plots including cluster metrics, SHAP summary,
-    XGBoost built-in importance, and permutation importance to the './img' directory.
+from .bundle import GLOBAL, ModelBundle  # noqa: E402
+from .config import TARGETS  # noqa: E402
+from .evaluate import metrics_table, per_cluster_table  # noqa: E402
 
-    Args:
-        df_agg: Aggregated DataFrame (user-month level).
-        features: Feature matrix derived from df_agg.
-        actual_july: Actual July income/expenses data for final evaluation merge.
-        models_dir: Directory containing models, scaler, and holdout data. Defaults to './models'.
-    """
-    print("Generating metrics and plots...")
+# Fixed categorical order (colour follows the method, never its rank).
+COLORS = {"model": "#2a78d6", "last_month": "#eb6834", "mean_3m": "#1baf7a"}
+LABELS = {"model": "XGBoost (per cluster)", "last_month": "Baseline: last month", "mean_3m": "Baseline: 3-month mean"}
+INK, MUTED, GRID = "#0b0b0b", "#898781", "#e1e0d9"
 
-    metrics = []
-    for cluster in range(5):
-        metrics.append({
-            'Cluster': cluster,
-            'MAE_Income': np.random.rand() * 100,  
-            'MAE_Expenses': np.random.rand() * 100
-        })
-    metrics_df = pd.DataFrame(metrics)
-    print("Metrics per cluster:")
-    
 
-    metrics_df.plot(x='Cluster', kind='bar', figsize=(10, 6))
-    plt.title('Model Performance per Cluster')
-    plt.savefig('../img/cluster_metrics.png')
+def _style(ax) -> None:
+    ax.spines[["top", "right"]].set_visible(False)
+    ax.spines[["left", "bottom"]].set_color("#c3c2b7")
+    ax.tick_params(colors=MUTED, labelcolor=INK)
+    ax.grid(axis="y", color=GRID, linewidth=0.6)
+    ax.set_axisbelow(True)
+
+
+def _out(outdir_: str) -> str:
+    os.makedirs(outdir_, exist_ok=True)
+    return outdir_ if outdir_.endswith("/") else outdir_ + "/"
+
+
+def plot_evaluation(holdout: pd.DataFrame, outdir_: str) -> str:
+    """6-panel hold-out summary: actual vs predicted, MAE vs baselines, per-cluster MAE, residuals."""
+    outdir_ = _out(outdir_)
+    month = holdout.get("forecast_month", pd.Series(["hold-out month"])).iloc[0]
+    fig, axes = plt.subplots(2, 3, figsize=(16, 9.5))
+
+    # (a, b) actual vs predicted, log-log because both flows span 3 orders of magnitude
+    for ax, t in zip(axes[0, :2], TARGETS):
+        a, p = holdout[f"actual_{t}"].to_numpy(), holdout[f"predicted_{t}"].to_numpy()
+        ax.scatter(a + 1, p + 1, s=9, alpha=0.35, color=COLORS["model"], edgecolors="none")
+        lim = [1, max(a.max(), p.max()) * 1.5]
+        ax.plot(lim, lim, color=MUTED, lw=1, ls="--", label="perfect forecast")
+        ax.set(
+            xscale="log",
+            yscale="log",
+            xlim=lim,
+            ylim=lim,
+            xlabel=f"actual {t} + 1 (€)",
+            ylabel=f"predicted {t} + 1 (€)",
+        )
+        ax.set_title(f"({'ab'[TARGETS.index(t)]}) {t.capitalize()}: actual vs predicted", loc="left", fontsize=11)
+        ax.legend(frameon=False, loc="upper left")
+        _style(ax)
+
+    # (c) MAE: model vs baselines
+    ax = axes[0, 2]
+    m = metrics_table(holdout)
+    methods = list(COLORS)
+    x = np.arange(len(TARGETS))
+    w = 0.26
+    for i, meth in enumerate(methods):
+        vals = [m.query("target == @t and method == @meth")["MAE"].item() for t in TARGETS]
+        bars = ax.bar(x + (i - 1) * w, vals, w * 0.92, color=COLORS[meth], label=LABELS[meth])
+        ax.bar_label(bars, fmt="%.0f", fontsize=8, color=INK, padding=2)
+    ax.set_xticks(x, [t.capitalize() for t in TARGETS])
+    ax.set(ylabel="MAE (€ per user, lower is better)")
+    ax.set_title("(c) Hold-out MAE vs naive baselines", loc="left", fontsize=11)
+    ax.set_ylim(0, m["MAE"].max() * 1.45)
+    ax.legend(frameon=False, fontsize=8, loc="upper left", ncol=1)
+    _style(ax)
+
+    # (d, e) per-cluster MAE, model vs the strongest baseline
+    pc = per_cluster_table(holdout)
+    counts = holdout.groupby("cluster").size()
+    for ax, t, tag in zip(axes[1, :2], TARGETS, "de"):
+        d = pc[pc["target"] == t].sort_values("cluster")
+        xc = np.arange(len(d))
+        ax.bar(xc - 0.2, d["MAE"], 0.38, color=COLORS["model"], label=LABELS["model"])
+        ax.bar(xc + 0.2, d["MAE_mean_3m"], 0.38, color=COLORS["mean_3m"], label=LABELS["mean_3m"])
+        ax.set_xticks(xc, [f"C{c}\nn={counts[c]}" for c in d["cluster"]])
+        ax.set(ylabel="MAE (€)")
+        ax.set_title(f"({tag}) {t.capitalize()} MAE by user cluster", loc="left", fontsize=11)
+        ax.legend(frameon=False, fontsize=8)
+        _style(ax)
+
+    # (f) residual distribution (signed): centred near 0 = unbiased
+    ax = axes[1, 2]
+    for t, color in zip(TARGETS, ("#2a78d6", "#eb6834")):
+        r = holdout[f"predicted_{t}"] - holdout[f"actual_{t}"]
+        ax.hist(r.clip(-1000, 1000), bins=60, alpha=0.55, color=color, label=f"{t} (median {r.median():+.0f} €)")
+    ax.axvline(0, color=MUTED, lw=1, ls="--")
+    ax.set(xlabel="predicted − actual (€, clipped at ±1000)", ylabel="users")
+    ax.set_title("(f) Forecast error distribution", loc="left", fontsize=11)
+    ax.legend(frameon=False, fontsize=8)
+    _style(ax)
+
+    fig.suptitle(f"Hold-out evaluation — forecasting {month} for unseen users", x=0.01, ha="left", fontsize=13)
+    fig.tight_layout()
+    plt.savefig(outdir_ + "evaluation_overview.png", dpi=300, bbox_inches="tight")
+    plt.close(fig)
+    return outdir_ + "evaluation_overview.png"
+
+
+def plot_feature_importance(bundle: ModelBundle, outdir_: str, top: int = 15) -> str:
+    """Gain importance of the global income and expenses models, side by side."""
+    outdir_ = _out(outdir_)
+    fig, axes = plt.subplots(1, 2, figsize=(14, 6))
+    for ax, t, color in zip(axes, TARGETS, ("#2a78d6", "#eb6834")):
+        booster = bundle.models[t][GLOBAL].get_booster()
+        gain = booster.get_score(importance_type="gain")
+        imp = pd.Series({bundle.feature_columns[int(k[1:])]: v for k, v in gain.items()})
+        imp = (imp / imp.sum()).sort_values().tail(top)
+        ax.barh(imp.index, imp.values, color=color, height=0.7)
+        ax.set(xlabel="share of total gain")
+        ax.set_title(f"{t.capitalize()} model (global): top {top} features", loc="left", fontsize=11)
+        _style(ax)
+        ax.grid(axis="x", color=GRID, linewidth=0.6)
+        ax.grid(axis="y", visible=False)
+    fig.tight_layout()
+    plt.savefig(outdir_ + "feature_importance.png", dpi=300, bbox_inches="tight")
+    plt.close(fig)
+    return outdir_ + "feature_importance.png"
+
+
+def plot_shap_summary(bundle: ModelBundle, features: pd.DataFrame, outdir_: str, n: int = 1000) -> str:
+    """SHAP beeswarm for the global expenses model on a sample of user-months."""
+    import shap
+
+    outdir_ = _out(outdir_)
+    X = features[bundle.feature_columns].sample(min(n, len(features)), random_state=0)
+    model = bundle.models["expenses"][GLOBAL]
+    values = shap.TreeExplainer(model).shap_values(X)
+    shap.summary_plot(values, X, max_display=15, show=False)
+    plt.title("SHAP: what drives next-month expenses (global model)", loc="left", fontsize=11)
+    plt.savefig(outdir_ + "shap_summary.png", dpi=300, bbox_inches="tight")
     plt.close()
-    
-    try:
-        model = joblib.load(f'{models_dir}/xgb_income_cluster_0.pkl')
-        explainer = shap.TreeExplainer(model)
-        shap_values = explainer.shap_values(features[:500])  # Sample for speed
-        feature_names = [f'feature_{i}' for i in range(features.shape[1])]  # Placeholder; use actual names
-        shap.summary_plot(shap_values, features[:500], feature_names=feature_names, show=False)
-        plt.savefig('../img/shap_summary.png')
-        plt.close()
-        print("Generated SHAP summary plot...")
-    except Exception as e:
-        print(f"SHAP error: {e}")
-    
-    
-    try:
-        model = joblib.load(f'{models_dir}/xgb_income_cluster_0.pkl')
-        fig, ax = plt.subplots()
-        xgb.plot_importance(model, ax=ax, max_num_features=20)
-        plt.title('XGBoost Feature Importance (Gain)')
-        plt.savefig('../img/xgb_importance.png')
-        plt.close()
-        print("Generated XGBoost feature importance plot...")
-    except Exception as e:
-        print(f"XGBoost importance error: {e}")
-    
-    try:
-        model = joblib.load(f'{models_dir}/xgb_income_cluster_0.pkl')
-        holdout_df = joblib.load(f'{models_dir}/holdout_df.pkl')
-        holdout_features, _, _ = preprocess_data(holdout_df, scaler=joblib.load(f'{models_dir}/scaler.pkl'), fit=False)
-        print("Loading holdout data for predictions...")
-        print(f"Columns in holdout_df: {holdout_df.columns}")
-        print(f"Shape of holdout_df: {holdout_df.shape}")
-        print("Applying feature engineering to holdout data...")
-        print(f"Shape of holdout_features: {holdout_features.shape}")
-        
-        print("Loading models for metrics...")
-        models = {}
-        for c in range(5):
-            try:
-                models[c] = joblib.load(f'{models_dir}/xgb_income_cluster_{c}.pkl')
-                print(f"Loaded income model for cluster {c}")
-            except FileNotFoundError:
-                print(f"Model for cluster {c} not found; skipping")
-        
-        if len(models) > 0:
-            print("Generating predictions for evaluation...")
-            pred_df = pd.DataFrame({
-                'predicted_income': np.zeros(len(holdout_df)),
-                'predicted_expenses': np.zeros(len(holdout_df))
-            })
-            for c in models.keys():
-                mask = holdout_df['cluster'] == c
-                if mask.sum() > 0:
-                    pred_df.loc[holdout_df[mask].index, 'predicted_income'] = models[c].predict(holdout_features[mask])
-            
-            merged = holdout_df.merge(pred_df, left_index=True, right_index=True)
-            merged = merged.merge(actual_july, on='user_id', how='inner')
-            print(f"Merged data shape for evaluation: {merged.shape}")
-            
-            if len(merged) > 0 and len(models) > 0:
-                sample_size = min(500, len(holdout_features), len(merged))
-                perm = permutation_importance(list(models.values())[0], holdout_features[:sample_size], merged['income'][:sample_size], n_repeats=10, random_state=42)
-                try:
-                    train_num_cols = joblib.load(os.path.join(models_dir, 'feature_columns.pkl'))
-                except FileNotFoundError:
-                    train_num_cols = [f'feature_{i}' for i in range(holdout_features.shape[1])]
-                perm_df = pd.DataFrame({'feature': train_num_cols, 'importance': perm.importances_mean})
-                perm_df = perm_df.sort_values('importance', ascending=False).head(20)
-                perm_df.plot(kind='bar', x='feature', y='importance', figsize=(10, 6))
-                plt.title('Permutation Importance')
-                plt.xticks(rotation=45)
-                plt.tight_layout()
-                plt.savefig('../img/permutation_importance.png')
-                plt.close()
-                print("Generated permutation importance plot...")
-            else:
-                print("Skipping permutation importance: insufficient data or models")
-        else:
-            print("No models loaded; skipping metrics and importance plots")
-    except Exception as e:
-        print(f"Permutation importance error: {e}")
-    
-    print("Metrics and plots generation complete.")
-    
+    return outdir_ + "shap_summary.png"
+
+
+def plot_clusters(features: pd.DataFrame, outdir_: str) -> str:
+    """Cluster profiles: size, and median monthly income / expenses per cluster."""
+    from .cluster import user_profiles
+
+    outdir_ = _out(outdir_)
+    prof = user_profiles(features).join(features.groupby("user_id")["cluster"].first())
+    g = prof.groupby("cluster")
+    fig, axes = plt.subplots(1, 3, figsize=(15, 4.5))
+    panels = [
+        (g.size(), "users", "(a) Users per cluster"),
+        (g["mean_income"].median(), "€ / month", "(b) Median monthly income"),
+        (g["mean_expenses"].median(), "€ / month", "(c) Median monthly expenses"),
+    ]
+    for ax, (s, ylabel, title) in zip(axes, panels):
+        bars = ax.bar([f"C{c}" for c in s.index], s.values, color="#2a78d6", width=0.6)
+        ax.bar_label(bars, fmt="%.0f", fontsize=8, padding=2)
+        ax.set(ylabel=ylabel)
+        ax.set_title(title, loc="left", fontsize=11)
+        _style(ax)
+    fig.tight_layout()
+    plt.savefig(outdir_ + "clusters.png", dpi=300, bbox_inches="tight")
+    plt.close(fig)
+    return outdir_ + "clusters.png"

@@ -1,154 +1,216 @@
-import pandas as pd
-import numpy as np
-from sklearn.preprocessing import StandardScaler
-import joblib
-import os
-from typing import Tuple, Dict, List, Optional, Any
+"""Data loading, validation and user-month feature engineering.
+
+Pipeline: raw transactions -> annotated transactions (flow, category, period)
+-> complete user x month panel -> lag / rolling features -> next-month targets.
+
+All steps are vectorised (groupby / pivot); the original row-wise ``apply``
+implementation was O(user-months x transactions).
+"""
+
+from __future__ import annotations
+
+import logging
+from dataclasses import dataclass, field
 from pathlib import Path
+from typing import IO
 
-BASE_DIR = Path(__file__).resolve().parent.parent 
+import numpy as np
+import pandas as pd
 
-def load_lookups() -> Tuple[Dict[str, str], Dict[float, str]]:
-    """Load lookup tables for transaction types and MCC groups."""
-    type_path = BASE_DIR / "data" / "transaction_types.csv"
-    mcc_path  = BASE_DIR / "data" / "mcc_group_definition.csv"
-    try:
-        # type_df = pd.read_csv('../data/transaction_types.csv')
-        type_df = pd.read_csv(type_path)
-        type_to_flow = dict(zip(type_df['type'], type_df['direction']))
-        type_to_flow = {k: v for k, v in type_to_flow.items() if v in ['In', 'Out']}  
-        # mcc_df = pd.read_csv('../data/mcc_group_definition.csv')
-        mcc_df = pd.read_csv(mcc_path)
-        mcc_to_cat = dict(zip(mcc_df['mcc_group'], mcc_df['explanation']))
-        return type_to_flow, mcc_to_cat
-    except FileNotFoundError:
-        print("Error: Lookup files (mcc_group_definition.csv or transaction_types.csv) not found.")
-        raise
+from .config import (
+    COL_AMOUNT,
+    COL_DATE,
+    COL_MCC,
+    COL_TYPE,
+    COL_USER,
+    REQUIRED_COLUMNS,
+    UNKNOWN_CATEGORY,
+    get_paths,
+)
+
+log = logging.getLogger(__name__)
+
+BASE_FEATURES = [
+    "income",
+    "expenses",
+    "tx_count",
+    "income_ratio",
+    "income_lag1",
+    "income_lag2",
+    "expenses_lag1",
+    "expenses_lag2",
+    "income_roll3_mean",
+    "expenses_roll3_mean",
+    "income_roll3_std",
+    "expenses_roll3_std",
+    "months_active",
+]
 
 
-def preprocess_data(df: pd.DataFrame, scaler: Optional[StandardScaler] = None, fit: bool = False, save_path: Optional[str] = None, fixed_categories: Optional[List[str]] = None) -> Tuple[np.ndarray, pd.DataFrame, StandardScaler]:
+@dataclass
+class Lookups:
+    """Mapping tables shipped inside the model bundle (no data/ dir needed at serve time)."""
+
+    type_to_flow: dict[str, str]
+    mcc_to_category: dict[int, str]
+    categories: list[str] = field(default_factory=list)
+
+    def __post_init__(self) -> None:
+        if not self.categories:
+            cats = sorted(set(self.mcc_to_category.values()))
+            self.categories = [*cats, UNKNOWN_CATEGORY] if UNKNOWN_CATEGORY not in cats else cats
+
+
+def load_lookups(data_dir: str | Path | None = None) -> Lookups:
+    """Read ``transaction_types.csv`` and ``mcc_group_definition.csv``.
+
+    Transaction types whose direction is not ``In``/``Out`` (e.g. authorisation
+    rejects, direction ``-``) are excluded: they move no money.
     """
-    Preprocess transaction data: map lookups, add temporal features, aggregate, engineer features, and scale.
+    data_dir = Path(data_dir) if data_dir else get_paths().data_dir
+    type_df = pd.read_csv(data_dir / "transaction_types.csv")
+    mcc_df = pd.read_csv(data_dir / "mcc_group_definition.csv")
+    type_to_flow = {str(t): d for t, d in zip(type_df["type"], type_df["direction"]) if d in ("In", "Out")}
+    mcc_to_category = {int(k): str(v) for k, v in zip(mcc_df["mcc_group"], mcc_df["explanation"])}
+    return Lookups(type_to_flow=type_to_flow, mcc_to_category=mcc_to_category)
 
-    Args:
-        df: Input DataFrame with transaction-level data.
-        scaler: The StandardScaler instance to use for transformation when fit=False. Defaults to None.
-        fit: If True, fit a new StandardScaler; otherwise, use the provided scaler. Defaults to False.
-        save_path: Full path to save the preprocessed DataFrame. The directory is used to save the scaler and feature columns. Defaults to None.
-        fixed_categories: Fixed list of expense categories to ensure consistent features. Defaults to None.
-    Returns:
-        tuple: (features, processed DataFrame, scaler)
+
+def parse_dates(s: pd.Series) -> pd.Series:
+    """Parse ISO (``2016-02-01``) and German short (``01.02.16``) dates.
+
+    The shipped CSVs use both formats; ``format='mixed', dayfirst=True`` silently
+    mis-parses ISO dates, so each format is tried explicitly.
     """
-    print("Starting preprocessing...")
+    s = s.astype(str).str.strip()
+    out = pd.to_datetime(s, format="%Y-%m-%d", errors="coerce")
+    for fmt in ("%d.%m.%y", "%d.%m.%Y"):
+        missing = out.isna()
+        if not missing.any():
+            break
+        out[missing] = pd.to_datetime(s[missing], format=fmt, errors="coerce")
+    if out.isna().any():
+        bad = s[out.isna()].unique()[:5]
+        raise ValueError(f"Unparseable {COL_DATE} values, e.g. {list(bad)}")
+    return out
 
 
-    if not {'transaction_type', 'amount_n26_currency', 'user_id', 'transaction_date'}.issubset(df.columns):
-        raise ValueError(
-            "Input DataFrame must contain 'transaction_type', 'amount_n26_currency', 'user_id', and 'transaction_date' columns.")
+def validate_transactions(df: pd.DataFrame) -> None:
+    missing = [c for c in REQUIRED_COLUMNS if c not in df.columns]
+    if missing:
+        raise ValueError(f"Missing required columns: {missing}. Required: {list(REQUIRED_COLUMNS)}")
+    if df.empty:
+        raise ValueError("No transactions in input.")
+    if not pd.api.types.is_numeric_dtype(df[COL_AMOUNT]):
+        raise ValueError(f"Column {COL_AMOUNT!r} must be numeric.")
 
-    df = df.copy()
-    type_to_flow, mcc_to_cat = load_lookups()
-    df['flow'] = df['transaction_type'].map(type_to_flow)
-    if df['flow'].isna().any():
-        print(
-            f"Warning: {df['flow'].isna().sum()} transactions have unmapped transaction_type values: {df[df['flow'].isna()]['transaction_type'].unique()}")
-        df = df.dropna(subset=['flow'])
-    df['category'] = df['mcc_group'].replace('NA', np.nan).astype(float, errors='ignore').map(mcc_to_cat)
-    df['category'] = df['category'].fillna('Unknown')
 
-    df['date'] = pd.to_datetime(df['transaction_date'])
-    df['month'] = df['date'].dt.month
-    df['day_of_week'] = df['date'].dt.dayofweek
-    df['is_weekend'] = df['day_of_week'].isin([5, 6]).astype(int)
+def read_transactions(source: str | Path | IO) -> pd.DataFrame:
+    """Read a raw transaction CSV and validate the column contract."""
+    df = pd.read_csv(source, dtype={COL_USER: str, COL_TYPE: str})
+    validate_transactions(df)
+    df[COL_DATE] = parse_dates(df[COL_DATE])
+    return df
 
-    agg_dict = {
-        'month': 'first',
-        'amount_n26_currency': ['sum', 'count'],
-        'flow': lambda x: (x == 'In').mean()
-    }
-    if 'cluster' in df.columns:
-        agg_dict['cluster'] = 'first'
-    else:
-        print("Warning: 'cluster' column not found. Proceeding without clustering.")
 
-    agg_data = df.groupby(['user_id', df['date'].dt.to_period('M')]).agg(agg_dict).reset_index()
+def annotate_transactions(df: pd.DataFrame, lookups: Lookups) -> pd.DataFrame:
+    """Add ``flow`` (In/Out), ``category`` (MCC explanation) and monthly ``period``."""
+    validate_transactions(df)
+    out = df.copy()
+    if not pd.api.types.is_datetime64_any_dtype(out[COL_DATE]):
+        out[COL_DATE] = parse_dates(out[COL_DATE])
+    out["flow"] = out[COL_TYPE].map(lookups.type_to_flow)
+    n_unmapped = int(out["flow"].isna().sum())
+    if n_unmapped:
+        log.warning(
+            "Dropping %d transactions with non-monetary/unknown types: %s",
+            n_unmapped,
+            sorted(out.loc[out["flow"].isna(), COL_TYPE].astype(str).unique())[:10],
+        )
+        out = out[out["flow"].notna()]
+    mcc = pd.to_numeric(out[COL_MCC], errors="coerce") if COL_MCC in out else pd.Series(np.nan, index=out.index)
+    out["category"] = mcc.map(lambda v: lookups.mcc_to_category.get(int(v)) if pd.notna(v) else None)
+    out["category"] = out["category"].fillna(UNKNOWN_CATEGORY)
+    out["period"] = out[COL_DATE].dt.to_period("M")
+    return out
 
-    agg_columns = ['user_id', 'month_period', 'month', 'total_amount', 'tx_count', 'income_ratio']
-    if 'cluster' in agg_dict:
-        agg_columns.append('cluster')
-    agg_data.columns = agg_columns
 
-    agg_data['income'] = agg_data.apply(
-        lambda row: df[(df['user_id'] == row['user_id']) &
-                       (df['date'].dt.to_period('M') == row['month_period']) &
-                       (df['flow'] == 'In')]['amount_n26_currency'].sum(),
-        axis=1
-    )
-    agg_data['expenses'] = agg_data.apply(
-        lambda row: df[(df['user_id'] == row['user_id']) &
-                       (df['date'].dt.to_period('M') == row['month_period']) &
-                       (df['flow'] == 'Out')]['amount_n26_currency'].sum(),
-        axis=1
-    )
+def monthly_panel(tx: pd.DataFrame, categories: list[str], end_period: pd.Period | None = None) -> pd.DataFrame:
+    """Aggregate annotated transactions to a *complete* user x month panel.
 
-    print("--5. Computing category breakdowns...")
-    agg_data['income_breakdown'] = agg_data.apply(
-        lambda row: df[(df['user_id'] == row['user_id']) &
-                       (df['date'].dt.to_period('M') == row['month_period']) &
-                       (df['flow'] == 'In')].groupby('category')['amount_n26_currency'].sum().to_dict(),
-        axis=1
-    )
-    agg_data['expenses_breakdown'] = agg_data.apply(
-        lambda row: df[(df['user_id'] == row['user_id']) &
-                       (df['date'].dt.to_period('M') == row['month_period']) &
-                       (df['flow'] == 'Out')].groupby('category')['amount_n26_currency'].sum().to_dict(),
-        axis=1
-    )
-
-    agg_df = agg_data
-    agg_df['date'] = agg_df['month_period'].dt.to_timestamp()
-
-    def user_features(user_df: pd.DataFrame) -> pd.DataFrame:
-        user_df = user_df.sort_values('month')
-        user_df['prev_income'] = user_df['income'].shift(1).fillna(0)
-        user_df['prev_expenses'] = user_df['expenses'].shift(1).fillna(0)
-        user_df['income_trend'] = (user_df['income'] - user_df['prev_income']) / (user_df['prev_income'] + 1e-6)
-        user_df['expenses_trend'] = (user_df['expenses'] - user_df['prev_expenses']) / (user_df['prev_expenses'] + 1e-6)
-        categories = fixed_categories if fixed_categories is not None else list(
-            user_df['expenses_breakdown'].iloc[0].keys())
+    Each user gets one row per month from their first observed month to
+    ``end_period`` (default: last month in the data). Months without
+    transactions are real zeros, not missing data, so the next-month target is
+    well defined even for inactive months.
+    """
+    end_period = end_period or tx["period"].max()
+    amt = tx.groupby([COL_USER, "period", "flow", "category"])[COL_AMOUNT].sum()
+    wide = amt.unstack(["flow", "category"], fill_value=0.0)
+    cols = {}
+    for flow, prefix in (("In", "inc_"), ("Out", "exp_")):
         for cat in categories:
-            user_df[f'avg_exp_{cat}'] = user_df['expenses_breakdown'].apply(lambda d: d.get(cat, 0)).rolling(
-                3).mean().fillna(0)
-        return user_df
+            key = (flow, cat)
+            cols[prefix + cat] = wide[key] if key in wide.columns else 0.0
+    panel = pd.DataFrame(cols, index=wide.index)
+    counts = tx.groupby([COL_USER, "period"])["flow"].agg(tx_count="size", n_in=lambda s: (s == "In").sum())
+    panel = panel.join(counts)
 
-    agg_df = agg_df.groupby('user_id').apply(user_features, include_groups=True).reset_index(drop=True)
+    # Complete the grid: first active month .. end_period, for every user.
+    first = tx.groupby(COL_USER)["period"].min()
+    idx = pd.MultiIndex.from_tuples(
+        [(u, p) for u, p0 in first.items() for p in pd.period_range(p0, end_period, freq="M")],
+        names=[COL_USER, "period"],
+    )
+    panel = panel.reindex(idx, fill_value=0).reset_index()
+    inc_cols = [c for c in panel if c.startswith("inc_")]
+    exp_cols = [c for c in panel if c.startswith("exp_")]
+    panel["income"] = panel[inc_cols].sum(axis=1)
+    panel["expenses"] = panel[exp_cols].sum(axis=1)
+    panel["tx_count"] = panel["tx_count"].astype(int)
+    panel["income_ratio"] = np.where(panel["tx_count"] > 0, panel["n_in"] / panel["tx_count"].clip(lower=1), 0.0)
+    return panel.sort_values([COL_USER, "period"]).reset_index(drop=True)
 
-    if 'user_id' not in agg_df.columns:
-        raise ValueError("'user_id' column missing after feature engineering.")
 
-    num_cols = [col for col in agg_df.columns if
-                col.startswith('prev_') or col.startswith('trend_') or col.startswith('avg_')]
-    if not num_cols:
-        raise ValueError("No numerical features generated for scaling.")
-    if fit:
-        scaler = StandardScaler()
-        features = scaler.fit_transform(agg_df[num_cols])
-        if save_path:
-            os.makedirs(os.path.dirname(save_path), exist_ok=True)
-            joblib.dump(scaler, os.path.join(os.path.dirname(save_path), 'scaler.pkl'))
-            print(f"Saved scaler to: {os.path.join(os.path.dirname(save_path), 'scaler.pkl')}")
-    else:
-        if scaler is None:
-            raise ValueError("Scaler must be provided when fit=False.")
-        features = scaler.transform(agg_df[num_cols])
+def feature_columns(categories: list[str]) -> list[str]:
+    return BASE_FEATURES + [f"avg_exp_{c}" for c in categories]
 
-    if save_path and fit:
-        joblib.dump(num_cols, os.path.join(os.path.dirname(save_path), 'feature_columns.pkl'))
-        agg_df.to_pickle(save_path)
-        print(f"Saved preprocessed DataFrame to: {save_path}")
 
-    print("Columns in agg_df after preprocessing:", agg_df.columns)
-    print(f"Shape of features: {features.shape}")
-    print(f"Shape of agg_df: {agg_df.shape}")
+def add_features(panel: pd.DataFrame, categories: list[str]) -> pd.DataFrame:
+    """Lag and 3-month rolling features, computed strictly from months <= t."""
+    df = panel.sort_values([COL_USER, "period"]).copy()
+    g = df.groupby(COL_USER, sort=False)
+    for col in ("income", "expenses"):
+        df[f"{col}_lag1"] = g[col].shift(1).fillna(0.0)
+        df[f"{col}_lag2"] = g[col].shift(2).fillna(0.0)
+        roll = g[col].rolling(3, min_periods=1)
+        df[f"{col}_roll3_mean"] = roll.mean().reset_index(level=0, drop=True)
+        df[f"{col}_roll3_std"] = roll.std().reset_index(level=0, drop=True).fillna(0.0)
+    df["months_active"] = g.cumcount() + 1
+    exp_cols = [f"exp_{c}" for c in categories]
+    rolled = g[exp_cols].rolling(3, min_periods=1).mean().reset_index(level=0, drop=True)
+    for c in categories:
+        df[f"avg_exp_{c}"] = rolled[f"exp_{c}"]
+    return df
 
-    return features, agg_df, scaler
+
+def add_targets(df: pd.DataFrame) -> pd.DataFrame:
+    """``target_<x>`` = value of ``<x>`` in month t+1 (NaN for each user's last month)."""
+    out = df.copy()
+    g = out.groupby(COL_USER, sort=False)
+    for col in ("income", "expenses"):
+        out[f"target_{col}"] = g[col].shift(-1)
+    return out
+
+
+def build_feature_frame(
+    tx_raw: pd.DataFrame,
+    lookups: Lookups,
+    end_period: pd.Period | None = None,
+    with_targets: bool = False,
+) -> pd.DataFrame:
+    """Raw transactions -> user-month feature frame (optionally with targets)."""
+    tx = annotate_transactions(tx_raw, lookups)
+    if tx.empty:
+        raise ValueError("No monetary transactions left after mapping transaction types.")
+    panel = monthly_panel(tx, lookups.categories, end_period=end_period)
+    feats = add_features(panel, lookups.categories)
+    return add_targets(feats) if with_targets else feats
